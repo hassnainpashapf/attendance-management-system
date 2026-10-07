@@ -63,6 +63,24 @@ function doGet() {
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
+/* HTTP entry for native clients (Android auto-punch service). Accepts a JSON
+   body {fn, user, args} and routes through the same __api dispatcher + token
+   validation as google.script.run. Returns {ok, data|error} as JSON. */
+function doPost(e) {
+  var body = {};
+  try { body = JSON.parse((e && e.postData && e.postData.contents) || '{}'); } catch (err) { body = {}; }
+  var out;
+  try {
+    var userJson = body.userJson || JSON.stringify(body.user || null);
+    var argsJson = body.argsJson || JSON.stringify(body.args || []);
+    out = { ok: true, data: __api(body.fn, userJson, argsJson) };
+  } catch (err) {
+    out = { ok: false, error: String((err && err.message) || err) };
+  }
+  return ContentService.createTextOutput(JSON.stringify(out))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
 /* Single dispatch entry for the frontend adapter */
 function __api(fn, userJson, argsJson) {
   var lock = LockService.getScriptLock();
@@ -688,7 +706,8 @@ var API = {
     need_(user, 'shifts_manage');
     var ss = TSS_(user);
     if (!s.name || !s.startTime || !s.endTime) throw new Error('Shift name, start and end time are required');
-    var obj = { name: s.name, startTime: s.startTime, endTime: s.endTime, graceMin: num_(s.graceMin) || 15 };
+    var obj = { name: s.name, startTime: s.startTime, endTime: s.endTime,
+      graceMin: num_(s.graceMin) || getRule_(ss, 'lateGraceMinutes', 15) };
     if (s.id) {
       var r = trows_(ss, 'shifts').filter(function (x) { return x.id === s.id; })[0];
       if (!r) throw new Error('Shift not found');
@@ -784,13 +803,16 @@ var API = {
     if (emp.deviceId && deviceId && String(emp.deviceId) !== String(deviceId))
       throw new Error('This device is not registered for ' + emp.name);
     var today = todayStr_(), nowT = timeStr_();
-    /* duplicate guard: same employee + type within 5 minutes */
+    /* duplicate guard: same employee + type inside the rule window */
+    var dupWin = getRule_(ss, 'duplicatePunchWindowMinutes', 5);
     var dup = trows_(ss, 'attendance').filter(function (a) {
       return String(a.employeeId) === String(employeeId) && a.type === type && a.date === today &&
-             Math.abs(minsBetween_(a.time, nowT)) < 5;
+             Math.abs(minsBetween_(a.time, nowT)) < dupWin;
     })[0];
     if (dup) throw new Error('Duplicate punch: a "' + type + '" punch was already recorded at ' + dup.time);
     var site = siteForPunch_(ss, employeeId, lat, lng);
+    if (site && site.outOfZone && getRule_(ss, 'outOfZonePolicy', 'flag') === 'block')
+      throw new Error('Punch rejected: outside the site geofence (out-of-zone punches are blocked by HR rule)');
     var row = {
       id: tnextId_(ss, 'P', 'attendance'), employeeId: employeeId, date: today, type: type, time: nowT,
       lat: (lat === null || lat === undefined || lat === '') ? '' : num_(lat),
@@ -824,9 +846,10 @@ var API = {
     var d = ts ? new Date(ts) : new Date();
     if (isNaN(d.getTime())) throw new Error('Invalid timestamp');
     var date = fmtDate_(d), time = fmtTime_(d);
+    var dupWin = getRule_(ss, 'duplicatePunchWindowMinutes', 5);
     var dup = trows_(ss, 'attendance').filter(function (a) {
       return String(a.employeeId) === String(emp.id) && a.type === type && a.date === date &&
-             Math.abs(minsBetween_(a.time, time)) < 5;
+             Math.abs(minsBetween_(a.time, time)) < dupWin;
     })[0];
     if (dup) throw new Error('Duplicate device punch at ' + dup.time);
     var row = {
@@ -1883,6 +1906,13 @@ function setupRegistry() {
 function setupTenantSS(ss, companyName) {
   TENANT_TABS.forEach(function (n) { sheetOf_(ss, n); });
 
+  /* Phase 2 track tab seeders (all idempotent; typeof-guarded for safety) */
+  if (typeof seedTrack1Tabs_ === 'function') seedTrack1Tabs_(ss);
+  if (typeof seedTrack2Tabs_ === 'function') seedTrack2Tabs_(ss);
+  if (typeof seedTrack3Tabs_ === 'function') seedTrack3Tabs_(ss);
+  if (typeof seedTrack5Tabs_ === 'function') seedTrack5Tabs_(ss);
+  if (typeof seedTrack6Tabs_ === 'function') seedTrack6Tabs_(ss);
+
   var perms = {
     admin:   { employees_manage: 1, sites_manage: 1, shifts_manage: 1, attendance_view: 1,
                attendance_manage: 1, leave_manage: 1, leave_approve: 1, overtime_approve: 1,
@@ -1992,6 +2022,1347 @@ function seedDemo() {
   /* one document expiring in 10 days */
   API.saveDocument(admin, { employeeId: empIds[0], title: 'CNIC Copy', expiryDate: addDays_(today, 10) });
 
+  /* Phase 2 rich demo data (overtime, holidays, rosters, payroll, contractors, extra punches) */
+  if (typeof seedTrack7Demo_ === 'function') seedTrack7Demo_(ss, t.tenantId);
+
   Logger.log('Demo tenant seeded. Login: company code DEMO / admin / admin123');
   return 'Demo seeded';
+}
+
+/* ===== TRACK 1: face check-in =====
+   On-device face verification (Phase 2). Face matching never runs server-side:
+   the frontend captures frames, computes 128-d descriptors with face-api.js in
+   the browser, and sends only the boolean faceVerified + numeric matchScore.
+   enrollFace stores one averaged descriptor per employee in the
+   faceEnrollments tab (keyed by employeeId). punchWithFace wraps API.punch and
+   appends the face columns to the punch record; all face fields are optional
+   so plain punch() calls keep working unchanged.
+   Dispatcher registration: __api resolves API[fn], so the assignments below
+   register enrollFace / getFaceEnrollment / resetFaceEnrollment / punchWithFace. */
+
+/* Tab schema for seedTrack1Tabs_ (coordinator wires the call into tenant setup).
+   The key is the sheet name; sheetOf_/rowsOf_/appendOf_ pick it up automatically. */
+SHEETS.faceEnrollments = ['employeeId', 'descriptorJson', 'enrolledAt', 'updatedAt'];
+/* Face columns on the attendance tab for both new and existing tenant sheets. */
+['faceVerified', 'matchScore'].forEach(function (c) {
+  if (SHEETS.attendance.indexOf(c) < 0) SHEETS.attendance.push(c);
+});
+
+/* Create the Track 1 tabs in a tenant spreadsheet. Called by the coordinator
+   from tenant setup (do NOT call from setupTenantSS directly). */
+function seedTrack1Tabs_(ss) {
+  sheetOf_(ss, 'faceEnrollments');
+  return 'faceEnrollments ready';
+}
+
+function faceRowByEmp_(ss, employeeId) {
+  return trows_(ss, 'faceEnrollments').filter(function (r) {
+    return String(r.employeeId) === String(employeeId);
+  })[0] || null;
+}
+
+/* Normalize a transported descriptor to 128 finite numbers, or null. */
+function parseFaceDescriptor_(descriptor) {
+  var d = null;
+  try { d = (typeof descriptor === 'string') ? JSON.parse(descriptor) : descriptor; }
+  catch (e) { d = null; }
+  if (!Array.isArray(d) || d.length !== 128) return null;
+  for (var i = 0; i < d.length; i++) {
+    var v = Number(d[i]);
+    if (!isFinite(v)) return null;
+    d[i] = v;
+  }
+  return d;
+}
+
+/* Add faceVerified/matchScore header columns to an already-seeded attendance tab. */
+function ensureFaceCols_(ss) {
+  var s = tsh_(ss, 'attendance');
+  var heads = s.getRange(1, 1, 1, s.getLastColumn()).getValues()[0].map(function (x) { return String(x); });
+  ['faceVerified', 'matchScore'].forEach(function (c) {
+    if (heads.indexOf(c) < 0) {
+      if (s.getMaxColumns() < s.getLastColumn() + 1) s.insertColumnsAfter(s.getMaxColumns(), 1);
+      s.getRange(1, s.getLastColumn() + 1).setValue(c);
+      heads.push(c);
+    }
+  });
+}
+
+API.enrollFace = function (user, employeeId, descriptor) {
+  requireUser_(user);
+  need_(user, 'employees_manage');
+  var ss = TSS_(user);
+  if (!empById_(ss, employeeId)) throw new Error('Employee not found');
+  var d = parseFaceDescriptor_(descriptor);
+  if (!d) throw new Error('Invalid face descriptor (need 128 finite numbers)');
+  var now = nowStr_();
+  var existing = faceRowByEmp_(ss, employeeId);
+  var row = { employeeId: employeeId, descriptorJson: JSON.stringify(d),
+              enrolledAt: existing ? existing.enrolledAt : now, updatedAt: now };
+  /* faceEnrollments is keyed by employeeId in column 1, so update/remove match on it */
+  if (existing) tupdate_(ss, 'faceEnrollments', employeeId, row);
+  else tappend_(ss, 'faceEnrollments', row);
+  audit_(user, 'enrollFace', employeeId + (existing ? ' re-enrolled' : ' enrolled'));
+  return { employeeId: employeeId, enrolledAt: row.enrolledAt, updatedAt: now };
+};
+
+API.getFaceEnrollment = function (user, employeeId) {
+  requireUser_(user);
+  if (!employeeId) throw new Error('Employee is required');
+  /* same scoping as listEmployees: employee/user roles see only their own record */
+  if (user.role === 'employee' || user.role === 'user') selfOnly_(user, employeeId);
+  var ss = TSS_(user);
+  var row = faceRowByEmp_(ss, employeeId);
+  if (!row) return { employeeId: employeeId, enrolled: false };
+  var out = { employeeId: employeeId, enrolled: true,
+              enrolledAt: row.enrolledAt, updatedAt: row.updatedAt };
+  /* the enrolled descriptor is handed to the device so matching runs on-device */
+  var d = parseFaceDescriptor_(row.descriptorJson);
+  if (d) out.descriptor = d;
+  return out;
+};
+
+API.resetFaceEnrollment = function (user, employeeId) {
+  requireUser_(user);
+  need_(user, 'employees_manage');
+  var ss = TSS_(user);
+  if (!empById_(ss, employeeId)) throw new Error('Employee not found');
+  tremove_(ss, 'faceEnrollments', employeeId);
+  audit_(user, 'resetFaceEnrollment', employeeId);
+  return { ok: true, employeeId: employeeId };
+};
+
+/* Punch with on-device face result. faceVerified/matchScore are optional:
+   when omitted (or invalid) the record is written exactly like API.punch. */
+API.punchWithFace = function (user, employeeId, type, lat, lng, selfie, deviceId, source, faceVerified, matchScore) {
+  var r = API.punch(user, employeeId, type, lat, lng, selfie, deviceId, source);
+  try {
+    var fv = (faceVerified === true || faceVerified === 'TRUE' || faceVerified === 'true');
+    var hadFace = (faceVerified !== null && faceVerified !== undefined && faceVerified !== '');
+    var ms = (matchScore === null || matchScore === undefined || matchScore === '') ? '' : Number(matchScore);
+    if (isNaN(ms)) ms = '';
+    var ss = TSS_(user);
+    ensureFaceCols_(ss);
+    var s = tsh_(ss, 'attendance');
+    var heads = s.getRange(1, 1, 1, s.getLastColumn()).getValues()[0].map(function (x) { return String(x); });
+    var c1 = heads.indexOf('faceVerified') + 1, c2 = heads.indexOf('matchScore') + 1;
+    var ids = s.getRange(2, 1, Math.max(1, s.getLastRow() - 1), 1).getValues();
+    for (var i = 0; i < ids.length; i++) {
+      if (String(ids[i][0]) === String(r.punch.id)) {
+        if (c1 && hadFace) s.getRange(i + 2, c1).setValue(fv);
+        if (c2 && ms !== '') s.getRange(i + 2, c2).setValue(ms);
+        break;
+      }
+    }
+    r.punch.faceVerified = hadFace ? fv : null;
+    r.punch.matchScore = ms;
+    audit_(user, 'punchFace', employeeId + ' faceVerified=' + r.punch.faceVerified + ' score=' + ms);
+  } catch (e) {
+    /* face columns are informational — never fail the punch */
+    r.punch.faceVerified = r.punch.faceVerified === undefined ? null : r.punch.faceVerified;
+    if (r.punch.matchScore === undefined) r.punch.matchScore = null;
+  }
+  return r;
+};
+
+/* ===== TRACK 2: auto salary ===== */
+/* Auto salary from attendance: SalaryStructures tab, per-employee monthly salary
+   computation (present / absent / late / overtime / leave), salary payroll runs
+   (payrollRuns.runType = 'salary') with per-employee payslip rows carrying a
+   JSON breakdown, plus a printable payslip view.
+   Integration: the coordinator appends this whole section to Code.gs and wires
+   seedTrack2Tabs_(ss) for new and existing tenants. */
+
+/* --- schema extensions (idempotent; run once when this section loads) --- */
+if (!SHEETS.salaryStructures)
+  SHEETS.salaryStructures = ['id', 'employeeId', 'basic', 'allowancesJson', 'effectiveFrom', 'payFrequency'];
+if (SHEETS.payrollRuns.indexOf('runType') < 0) SHEETS.payrollRuns.push('runType');
+if (SHEETS.payslips.indexOf('breakdownJson') < 0) SHEETS.payslips.push('breakdownJson');
+
+/* --- seed for new + existing tenants (safe to re-run) --- */
+function seedTrack2Tabs_(ss) {
+  sheetOf_(ss, 'salaryStructures');
+  var defaults = [
+    ['absentDeductionPerDay', '30'],
+    ['lateGraceMinutes', '15'],
+    ['latePenaltyMinutes', '60'],
+    ['overtimeRateMultiplier', '1.5'],
+    ['salaryWorkHoursPerDay', '8']
+  ];
+  var have = {};
+  trows_(ss, 'settings').forEach(function (r) { have[r.key] = true; });
+  defaults.forEach(function (kv) {
+    if (!have[kv[0]]) tappend_(ss, 'settings', { key: kv[0], value: kv[1] });
+  });
+  return 'track2 seeded';
+}
+
+/* --- pure helpers (no GAS services; unit-tested by qa_salary.js) --- */
+function t2r2_(n) { return Math.round(num_(n) * 100) / 100; }
+
+function monthBounds_(yyyyMM) {
+  var y = Number(String(yyyyMM).slice(0, 4)), m = Number(String(yyyyMM).slice(5, 7));
+  var lastDay = new Date(y, m, 0).getDate();
+  return { year: y, month: m, first: yyyyMM + '-01', last: yyyyMM + '-' + pad2_(lastDay), days: lastDay };
+}
+
+/* latest structure whose effectiveFrom is on/before the month's last day */
+function pickStructure_(structs, employeeId, lastDay) {
+  var best = null;
+  (structs || []).forEach(function (s) {
+    if (String(s.employeeId) !== String(employeeId)) return;
+    var eff = String(s.effectiveFrom || '');
+    if (!eff || eff > lastDay) return;
+    if (!best || eff > String(best.effectiveFrom || '')) best = s;
+  });
+  return best;
+}
+
+/* Pure salary math. input: {employeeId, employeeName, month, basic, allowances{label:amt},
+   settings{absentDivisor, lateGraceMinutes, latePenaltyMinutes, overtimeRateMultiplier,
+   workHoursPerDay}, days[{date, working, joined, present, inTime, shiftStart, paidLeave,
+   unpaidLeave}], overtime[{hours, rate}], prorated, proRateFactor}
+   Money is computed in integer paisa so results are deterministic to the paisa. */
+function computeSalaryCore_(input) {
+  var s = input.settings || {};
+  var P = function (n) { return Math.round(num_(n) * 100); };
+  var R = function (p) { return Math.round(p) / 100; };
+  var basicP = P(input.basic), allowP = 0, allowDetail = {};
+  Object.keys(input.allowances || {}).forEach(function (k) {
+    var v = P(input.allowances[k]); allowDetail[k] = R(v); allowP += v;
+  });
+  var grossP = basicP + allowP;
+  var divisor = Math.max(1, num_(s.absentDivisor) || 30);
+  var whpd = Math.max(1, num_(s.workHoursPerDay) || 8);
+  var dailyP = Math.round(grossP / divisor);
+  var hourlyP = Math.round(dailyP / whpd);
+  var daysPresent = 0, daysAbsent = 0, lateCount = 0;
+  var paidLeaveDays = 0, unpaidLeaveDays = 0, workDays = 0;
+  var absentP = 0, lateP = 0;
+  var grace = num_(s.lateGraceMinutes), penaltyMin = num_(s.latePenaltyMinutes);
+  (input.days || []).forEach(function (d) {
+    if (!d.working || !d.joined) return;
+    workDays++;
+    if (d.paidLeave) { paidLeaveDays++; return; }
+    if (d.unpaidLeave) { unpaidLeaveDays++; absentP += dailyP; return; }
+    if (!d.present) { daysAbsent++; absentP += dailyP; return; }
+    daysPresent++;
+    if (d.inTime && d.shiftStart) {
+      var lateMins = minsBetween_(d.shiftStart, d.inTime) - grace;
+      if (lateMins > 0) { lateCount++; lateP += Math.round((penaltyMin / 60) * hourlyP); }
+    }
+  });
+  var overtimeHours = 0, otP = 0;
+  (input.overtime || []).forEach(function (o) {
+    var h = num_(o.hours); if (h <= 0) return;
+    overtimeHours = Math.round((overtimeHours + h) * 100) / 100;
+    var rateP = num_(o.rate) > 0 ? P(o.rate) : Math.round(hourlyP * num_(s.overtimeRateMultiplier));
+    otP += Math.round(h * rateP);
+  });
+  var netP = grossP - absentP - lateP + otP;
+  return {
+    employeeId: input.employeeId, employeeName: input.employeeName || '', month: input.month,
+    basic: R(basicP), allowances: R(allowP), allowancesDetail: allowDetail, gross: R(grossP),
+    absentDeduction: R(absentP), lateDeduction: R(lateP),
+    overtimePay: R(otP), net: R(netP),
+    daysPresent: daysPresent, daysAbsent: daysAbsent, lateCount: lateCount,
+    overtimeHours: overtimeHours, paidLeaveDays: paidLeaveDays, unpaidLeaveDays: unpaidLeaveDays,
+    workDays: workDays, dailyWage: R(dailyP), hourlyWage: R(hourlyP),
+    prorated: !!input.prorated,
+    proRateFactor: input.proRateFactor == null ? 1 : Math.round(input.proRateFactor * 100) / 100
+  };
+}
+
+/* --- sheet-reading builder (GAS services) --- */
+function buildSalaryInput_(ss, employeeId, yyyyMM) {
+  var b = monthBounds_(yyyyMM);
+  var emp = empById_(ss, employeeId);
+  if (!emp) throw new Error('Employee not found');
+  if (!bool_(emp.active)) throw new Error('Employee is not active');
+  var st = pickStructure_(trows_(ss, 'salaryStructures'), employeeId, b.last);
+  if (!st) throw new Error('No salary structure for this employee');
+  var pf = String(st.payFrequency || 'monthly').toLowerCase();
+  if (pf !== 'monthly') throw new Error('Pay frequency "' + pf + '" is not supported yet (monthly only)');
+  var basic = num_(st.basic);
+  if (!(basic > 0)) throw new Error('Salary structure has no basic pay');
+  var allowances = {};
+  try { allowances = JSON.parse(st.allowancesJson || '{}') || {}; } catch (e) { allowances = {}; }
+  var joinDate = String(emp.joinDate || '') || b.first;
+  if (joinDate > b.last) throw new Error('Employee joins after this month');
+  var wdNames = String(tsetting_(ss, 'workingDays', 'Mon,Tue,Wed,Thu,Fri,Sat')).split(',');
+  var dowNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  var holidays = {};
+  trows_(ss, 'holidays').forEach(function (h) { holidays[String(h.date)] = true; });
+  var prorated = false, factor = 1;
+  if (joinDate > b.first) {
+    var tot = 0, eff = 0;
+    for (var d = 1; d <= b.days; d++) {
+      var iso0 = yyyyMM + '-' + pad2_(d);
+      var w0 = wdNames.indexOf(dowNames[new Date(b.year, b.month - 1, d).getDay()]) >= 0 && !holidays[iso0];
+      if (w0) { tot++; if (iso0 >= joinDate) eff++; }
+    }
+    if (tot > 0) { factor = eff / tot; prorated = true; }
+  }
+  if (prorated) {
+    basic = t2r2_(basic * factor);
+    Object.keys(allowances).forEach(function (k) { allowances[k] = t2r2_(num_(allowances[k]) * factor); });
+  }
+  var byDate = {};
+  trows_(ss, 'attendance').forEach(function (a) {
+    if (String(a.employeeId) !== String(employeeId)) return;
+    if (a.date < b.first || a.date > b.last) return;
+    var r = byDate[a.date] || (byDate[a.date] = { present: true, inTime: null, anyTime: null });
+    r.present = true;
+    if (a.time) {
+      if (a.type === 'in' && (!r.inTime || a.time < r.inTime)) r.inTime = a.time;
+      if (!r.anyTime || a.time < r.anyTime) r.anyTime = a.time;
+    }
+  });
+  var leaveTypes = {};
+  trows_(ss, 'leaveTypes').forEach(function (t) { leaveTypes[t.id] = bool_(t.paid); });
+  var leaveByDate = {};
+  trows_(ss, 'leaveRequests').forEach(function (l) {
+    if (String(l.employeeId) !== String(employeeId) || l.status !== 'approved') return;
+    var paid = leaveTypes[l.typeId] !== false;
+    for (var d = 1; d <= b.days; d++) {
+      var iso = yyyyMM + '-' + pad2_(d);
+      if (iso >= String(l.from) && iso <= String(l.to)) leaveByDate[iso] = paid ? 'paid' : 'unpaid';
+    }
+  });
+  var shifts = trows_(ss, 'shifts').slice().sort(function (x, y) {
+    return String(x.startTime).localeCompare(String(y.startTime));
+  });
+  var shiftById = {};
+  shifts.forEach(function (x) { shiftById[x.id] = x.startTime; });
+  var rosterByDate = {};
+  trows_(ss, 'rosters').forEach(function (r) {
+    if (String(r.employeeId) === String(employeeId)) rosterByDate[String(r.date)] = r.shiftId;
+  });
+  var days = [];
+  for (var d = 1; d <= b.days; d++) {
+    var iso = yyyyMM + '-' + pad2_(d);
+    var dow = dowNames[new Date(b.year, b.month - 1, d).getDay()];
+    var att = byDate[iso];
+    days.push({
+      date: iso,
+      working: wdNames.indexOf(dow) >= 0 && !holidays[iso],
+      joined: iso >= joinDate,
+      present: !!(att && att.present),
+      inTime: att ? (att.inTime || att.anyTime || null) : null,
+      shiftStart: shiftById[rosterByDate[iso]] || (shifts[0] && shifts[0].startTime) || '09:00',
+      paidLeave: leaveByDate[iso] === 'paid',
+      unpaidLeave: leaveByDate[iso] === 'unpaid'
+    });
+  }
+  var ot = [];
+  trows_(ss, 'overtime').forEach(function (o) {
+    if (String(o.employeeId) !== String(employeeId) || o.status !== 'approved') return;
+    if (o.date >= b.first && o.date <= b.last) ot.push({ hours: num_(o.hours), rate: num_(o.rate) });
+  });
+  return {
+    employeeId: employeeId, employeeName: emp.name, month: yyyyMM,
+    basic: basic, allowances: allowances,
+    settings: {
+      absentDivisor: num_(tsetting_(ss, 'absentDeductionPerDay', '30')) || 30,
+      lateGraceMinutes: num_(tsetting_(ss, 'lateGraceMinutes', '15')),
+      latePenaltyMinutes: num_(tsetting_(ss, 'latePenaltyMinutes', '60')),
+      overtimeRateMultiplier: num_(tsetting_(ss, 'overtimeRateMultiplier', '1.5')) || 1.5,
+      workHoursPerDay: num_(tsetting_(ss, 'salaryWorkHoursPerDay', '8')) || 8
+    },
+    days: days, overtime: ot, prorated: prorated, proRateFactor: factor
+  };
+}
+
+/* --- API registrations (dispatcher __api routes API[fn] to these) --- */
+API.computeMonthlySalary = function (user, employeeId, yyyyMM) {
+  requireUser_(user); need_(user, 'payroll_manage');
+  if (!/^\d{4}-\d{2}$/.test(String(yyyyMM || ''))) throw new Error('Month must be in yyyy-MM format');
+  return computeSalaryCore_(buildSalaryInput_(TSS_(user), employeeId, yyyyMM));
+};
+
+API.listSalaryStructures = function (user) {
+  requireUser_(user); need_(user, 'payroll_manage');
+  var ss = TSS_(user), emps = {};
+  trows_(ss, 'employees').forEach(function (e) { emps[e.id] = e; });
+  return trows_(ss, 'salaryStructures').map(function (s) {
+    s = clean_(s);
+    var e = emps[s.employeeId] || {};
+    s.employeeName = e.name || '?'; s.employeeCode = e.code || '';
+    s.basic = num_(s.basic);
+    try { s.allowancesDetail = JSON.parse(s.allowancesJson || '{}') || {}; }
+    catch (e2) { s.allowancesDetail = {}; }
+    return s;
+  }).sort(function (a, b) { return String(a.employeeName).localeCompare(String(b.employeeName)); });
+};
+
+API.saveSalaryStructure = function (user, s) {
+  requireUser_(user); need_(user, 'payroll_manage');
+  var ss = TSS_(user);
+  s = s || {};
+  if (!empById_(ss, s.employeeId)) throw new Error('Employee not found');
+  if (!(num_(s.basic) > 0)) throw new Error('Basic pay must be greater than zero');
+  var aj = s.allowancesJson;
+  if (aj && typeof aj === 'object') aj = JSON.stringify(aj);
+  try { JSON.parse(aj || '{}'); } catch (e) { throw new Error('Allowances must be valid JSON'); }
+  var obj = { employeeId: s.employeeId, basic: num_(s.basic), allowancesJson: aj || '{}',
+    effectiveFrom: s.effectiveFrom || todayStr_(), payFrequency: s.payFrequency || 'monthly' };
+  var ex = null;
+  if (s.id) ex = trows_(ss, 'salaryStructures').filter(function (x) { return x.id === s.id; })[0];
+  else ex = trows_(ss, 'salaryStructures').filter(function (x) {
+    return String(x.employeeId) === String(obj.employeeId) && String(x.effectiveFrom) === String(obj.effectiveFrom);
+  })[0];
+  var id;
+  if (ex) { obj.id = ex.id; tupdate_(ss, 'salaryStructures', ex.id, obj); id = ex.id; }
+  else { obj.id = tnextId_(ss, 'SS', 'salaryStructures'); tappend_(ss, 'salaryStructures', obj); id = obj.id; }
+  audit_(user, 'saveSalaryStructure', id + ' ' + s.employeeId);
+  return id;
+};
+
+API.generateMonthlySalaries = function (user, yyyyMM) {
+  requireUser_(user); need_(user, 'payroll_manage');
+  if (!/^\d{4}-\d{2}$/.test(String(yyyyMM || ''))) throw new Error('Month must be in yyyy-MM format');
+  var ss = TSS_(user);
+  var run = trows_(ss, 'payrollRuns').filter(function (r) {
+    return r.month === yyyyMM && (r.runType || 'manual') === 'salary' && r.status !== 'cancelled';
+  })[0];
+  var runId;
+  if (run) {
+    if (run.status === 'finalized')
+      throw new Error('Salary run for ' + yyyyMM + ' is finalized and cannot be regenerated');
+    runId = run.id;
+    trows_(ss, 'payslips').forEach(function (p) {
+      if (String(p.runId) === String(runId)) tremove_(ss, 'payslips', p.id);
+    });
+    tupdate_(ss, 'payrollRuns', runId,
+      { id: runId, month: yyyyMM, createdAt: nowStr_(), createdBy: user.id, status: 'draft', runType: 'salary' });
+  } else {
+    runId = tnextId_(ss, 'RUN', 'payrollRuns');
+    tappend_(ss, 'payrollRuns',
+      { id: runId, month: yyyyMM, createdAt: nowStr_(), createdBy: user.id, status: 'draft', runType: 'salary' });
+  }
+  var generated = [], skipped = [];
+  trows_(ss, 'employees').filter(function (e) { return bool_(e.active); }).forEach(function (e) {
+    try {
+      var bd = computeSalaryCore_(buildSalaryInput_(ss, e.id, yyyyMM));
+      var slip = { id: tnextId_(ss, 'SLIP', 'payslips'), runId: runId, employeeId: e.id,
+        salary: bd.basic, allowances: bd.allowances,
+        deductions: t2r2_(bd.absentDeduction + bd.lateDeduction),
+        advanceRecovery: 0, net: bd.net, paid: false, breakdownJson: JSON.stringify(bd) };
+      tappend_(ss, 'payslips', slip);
+      generated.push({ employeeId: e.id, employeeName: e.name, employeeCode: e.code, net: bd.net,
+        daysPresent: bd.daysPresent, daysAbsent: bd.daysAbsent,
+        lateCount: bd.lateCount, overtimeHours: bd.overtimeHours });
+    } catch (err) {
+      skipped.push({ employeeId: e.id, employeeName: e.name, employeeCode: e.code, reason: err.message });
+    }
+  });
+  audit_(user, 'generateMonthlySalaries', yyyyMM + ' generated=' + generated.length + ' skipped=' + skipped.length);
+  return { runId: runId, month: yyyyMM, generated: generated, skipped: skipped,
+    totalNet: t2r2_(generated.reduce(function (s, g) { return s + g.net; }, 0)) };
+};
+
+API.listPayslips = function (user, runId) {
+  requireUser_(user); need_(user, 'payroll_manage');
+  var ss = TSS_(user), emps = {};
+  trows_(ss, 'employees').forEach(function (e) { emps[e.id] = e; });
+  var run = trows_(ss, 'payrollRuns').filter(function (r) { return r.id === runId; })[0] || {};
+  return trows_(ss, 'payslips').filter(function (p) { return String(p.runId) === String(runId); }).map(function (p) {
+    p = clean_(p);
+    var e = emps[p.employeeId] || {};
+    p.employeeName = e.name || '?'; p.employeeCode = e.code || '';
+    p.month = run.month || ''; p.runType = run.runType || 'manual';
+    ['salary', 'allowances', 'deductions', 'advanceRecovery', 'net'].forEach(function (k) { p[k] = num_(p[k]); });
+    p.paid = bool_(p.paid);
+    return p;
+  }).sort(function (a, b) { return String(a.employeeName).localeCompare(String(b.employeeName)); });
+};
+
+API.getSalaryPayslip = function (user, runId, employeeId) {
+  requireUser_(user);
+  if (user.role === 'employee' || user.role === 'user') selfOnly_(user, employeeId);
+  else need_(user, 'payroll_manage');
+  var ss = TSS_(user);
+  var p = trows_(ss, 'payslips').filter(function (x) {
+    return String(x.runId) === String(runId) && String(x.employeeId) === String(employeeId);
+  })[0];
+  if (!p) throw new Error('Payslip not found');
+  var emp = empById_(ss, p.employeeId) || {};
+  var run = trows_(ss, 'payrollRuns').filter(function (r) { return r.id === p.runId; })[0] || {};
+  p = clean_(p);
+  ['salary', 'allowances', 'deductions', 'advanceRecovery', 'net'].forEach(function (k) { p[k] = num_(p[k]); });
+  p.paid = bool_(p.paid);
+  var breakdown = null;
+  try { breakdown = JSON.parse(p.breakdownJson || 'null'); } catch (e) { breakdown = null; }
+  return { payslip: p, employee: clean_(emp), run: clean_(run),
+    company: tsetting_(ss, 'companyName', ''), breakdown: breakdown };
+};
+
+/* ===== TRACK 3: alerts (WhatsApp + SMS) =====
+   Tenant-level WhatsApp Cloud API + generic SMS webhook alerting.
+   Events: late arrival, absent (no check-in), leave approved/rejected,
+   out-of-zone punch. Every attempt is written to the messageLog tab with
+   status sent / failed / pending-config. Missing credentials never throw:
+   the attempt is logged as pending-config and the punch/leave flow continues.
+   Dispatcher registration: __api resolves API[fn], so the API.* assignments
+   below register sendAlert / runAlertChecks / checkAbsences /
+   alertLeaveDecision / listMessageLog / resendAlert / testAlert automatically.
+   Integration: the coordinator appends this whole section to Code.gs and
+   wires seedTrack3Tabs_(ss) for new and existing tenants. */
+
+/* Tab schema for seedTrack3Tabs_. ts is an ISO string (yyyy-MM-ddTHH:mm:ss),
+   never a Date object: google.script.run cannot transport Dates. */
+SHEETS.messageLog = ['id', 'ts', 'tenantId', 'channel', 'to', 'event', 'body', 'status', 'error'];
+if (TENANT_TABS.indexOf('messageLog') < 0) TENANT_TABS.push('messageLog');
+
+/* Create the Track 3 tab + default settings keys in a tenant spreadsheet.
+   Idempotent: never overwrites keys the tenant already set. */
+function seedTrack3Tabs_(ss) {
+  sheetOf_(ss, 'messageLog');
+  var defaults = [
+    ['wa_token', ''],
+    ['wa_phone_number_id', ''],
+    ['wa_enabled', '0'],
+    ['wa_template_name', ''],
+    ['sms_webhook_url', ''],
+    ['sms_enabled', '0'],
+    ['alert_late', '1'],
+    ['alert_absent', '1'],
+    ['alert_leave_decision', '1'],
+    ['alert_out_of_zone', '1'],
+    ['absence_grace_minutes', '60']
+  ];
+  var have = {};
+  trows_(ss, 'settings').forEach(function (r) { have[r.key] = 1; });
+  defaults.forEach(function (kv) {
+    if (!have[kv[0]]) tappend_(ss, 'settings', { key: kv[0], value: kv[1] });
+  });
+  return 'Track 3 tabs seeded';
+}
+
+/* ---------- small helpers ---------- */
+function t3On_(v) {
+  return v === true || v === 1 || v === '1' || v === 'true' || v === 'TRUE';
+}
+function t3NowISO_() {
+  return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd'T'HH:mm:ss");
+}
+function t3NormPhone_(p) {
+  return String(p || '').replace(/[^0-9]/g, '');
+}
+/* Channel pick: WhatsApp wins when fully configured + enabled, else SMS when
+   its webhook is configured + enabled, else '' (pending-config path). */
+function t3Channel_(ss) {
+  if (t3On_(tsetting_(ss, 'wa_enabled', '0')) &&
+      tsetting_(ss, 'wa_token', '') && tsetting_(ss, 'wa_phone_number_id', ''))
+    return 'whatsapp';
+  if (t3On_(tsetting_(ss, 'sms_enabled', '0')) && tsetting_(ss, 'sms_webhook_url', ''))
+    return 'sms';
+  return '';
+}
+/* Validate an explicitly requested channel against stored credentials. */
+function t3ChannelFor_(ss, channel) {
+  if (channel === 'whatsapp' && tsetting_(ss, 'wa_token', '') && tsetting_(ss, 'wa_phone_number_id', ''))
+    return 'whatsapp';
+  if (channel === 'sms' && tsetting_(ss, 'sms_webhook_url', ''))
+    return 'sms';
+  return '';
+}
+function t3LogRow_(ss, base, status, error) {
+  tappend_(ss, 'messageLog', {
+    id: base.id, ts: base.ts, tenantId: base.tenantId, channel: base.channel,
+    to: base.to, event: base.event, body: String(base.body || '').slice(0, 1000),
+    status: status, error: String(error || '').slice(0, 500)
+  });
+}
+/* Message text per event. English templates; localizable later via settings. */
+function t3Body_(event, v) {
+  var brand = 'Attendance Management System';
+  switch (event) {
+    case 'late':
+      return brand + ': ' + v.name + ' checked in late at ' + v.time +
+        ' (shift starts ' + v.shiftStart + ', ' + v.lateBy + ' min beyond grace).';
+    case 'out_of_zone':
+      return brand + ': ' + v.name + ' punched ' + v.type + ' at ' + v.time +
+        ' outside the geofence (' + v.site + (v.distance ? ', ' + v.distance + ' m away' : '') + ').';
+    case 'absent':
+      return brand + ': ' + v.name + ' is marked absent for ' + v.date + ' (no check-in recorded).';
+    case 'leave_approved':
+      return brand + ': Dear ' + v.name + ', your ' + v.type + ' leave from ' + v.from +
+        ' to ' + v.to + ' (' + v.days + ' days) has been APPROVED.';
+    case 'leave_rejected':
+      return brand + ': Dear ' + v.name + ', your ' + v.type + ' leave from ' + v.from +
+        ' to ' + v.to + ' (' + v.days + ' days) has been REJECTED.';
+    case 'test':
+      return brand + ' test alert via ' + v.channel + ' - your notification channel is working.';
+    default:
+      return brand + ' notification: ' + event;
+  }
+}
+/* WhatsApp Cloud API. URL built by concat: no literal double-slash in strings.
+   NOTE: GAS UrlFetchApp exposes no timeout parameter, so the platform default
+   applies; the call is wrapped so a failure is logged, never thrown. */
+function t3WhatsApp_(ss, to, body) {
+  var token = tsetting_(ss, 'wa_token', '');
+  var pid = tsetting_(ss, 'wa_phone_number_id', '');
+  if (!token || !pid) throw new Error('WhatsApp credentials not configured');
+  var url = 'https:' + '/' + '/graph.facebook.com/v21.0/' + pid + '/messages';
+  var tpl = tsetting_(ss, 'wa_template_name', '');
+  var payload = tpl
+    ? { messaging_product: 'whatsapp', to: to, type: 'template',
+        template: { name: tpl, language: { code: 'en' } } }
+    : { messaging_product: 'whatsapp', to: to, type: 'text', text: { body: body } };
+  var resp = UrlFetchApp.fetch(url, {
+    method: 'post', contentType: 'application/json', payload: JSON.stringify(payload),
+    headers: { Authorization: 'Bearer ' + token }, muteHttpExceptions: true
+  });
+  var code = resp.getResponseCode();
+  if (code < 200 || code >= 300)
+    throw new Error('WhatsApp API HTTP ' + code + ': ' + String(resp.getContentText()).slice(0, 300));
+  return true;
+}
+/* Generic SMS webhook: POST JSON {to, message}. 2xx counts as sent. */
+function t3Sms_(ss, to, body) {
+  var url = tsetting_(ss, 'sms_webhook_url', '');
+  if (!url) throw new Error('SMS webhook URL not configured');
+  var resp = UrlFetchApp.fetch(url, {
+    method: 'post', contentType: 'application/json',
+    payload: JSON.stringify({ to: to, message: body }), muteHttpExceptions: true
+  });
+  var code = resp.getResponseCode();
+  if (code < 200 || code >= 300)
+    throw new Error('SMS webhook HTTP ' + code + ': ' + String(resp.getContentText()).slice(0, 300));
+  return true;
+}
+/* Raw send: throws on any failure (including missing credentials). */
+function t3TrySend_(ss, channel, to, body) {
+  if (channel === 'whatsapp') return t3WhatsApp_(ss, to, body);
+  if (channel === 'sms') return t3Sms_(ss, to, body);
+  throw new Error('No notification channel configured');
+}
+/* Dispatch + log. NEVER throws: missing credentials -> pending-config,
+   send failure -> failed with error text. Returns a result object. */
+function t3Dispatch_(ss, tenantId, channel, to, event, body) {
+  var base = { id: tnextId_(ss, 'M', 'messageLog'), ts: t3NowISO_(),
+    tenantId: tenantId, channel: channel || '', to: to, event: event, body: body };
+  if (!channel) {
+    t3LogRow_(ss, base, 'pending-config', 'WhatsApp/SMS credentials not configured');
+    return { ok: true, sent: false, status: 'pending-config' };
+  }
+  try {
+    t3TrySend_(ss, channel, to, body);
+    t3LogRow_(ss, base, 'sent', '');
+    return { ok: true, sent: true, status: 'sent', channel: channel };
+  } catch (e) {
+    var msg = String((e && e.message) || e).slice(0, 500);
+    t3LogRow_(ss, base, 'failed', msg);
+    return { ok: true, sent: false, status: 'failed', error: msg };
+  }
+}
+/* Dedupe guard: was this event already logged (not failed)? The log ts is when
+   the check RAN, which may differ from the event date (e.g. a back-dated
+   absence sweep), so a row counts when its ts starts with dateISO OR its body
+   mentions dateISO, and the match string (when given) appears in the body. */
+function t3Logged_(ss, dateISO, event, phone, match) {
+  var to = t3NormPhone_(phone);
+  return trows_(ss, 'messageLog').some(function (r) {
+    if (r.event !== event || t3NormPhone_(r.to) !== to || r.status === 'failed') return false;
+    var body = String(r.body || '');
+    if (match && body.indexOf(match) < 0) return false;
+    return String(r.ts || '').indexOf(dateISO) === 0 || body.indexOf(dateISO) >= 0;
+  });
+}
+/* Shift for an employee on a date: roster row wins, else the first shift. */
+function t3ShiftFor_(ss, employeeId, date) {
+  var ros = trows_(ss, 'rosters').filter(function (r) {
+    return String(r.employeeId) === String(employeeId) && r.date === date && r.shiftId;
+  });
+  var sh = null;
+  if (ros.length)
+    sh = trows_(ss, 'shifts').filter(function (s) { return String(s.id) === String(ros[0].shiftId); })[0] || null;
+  if (!sh) sh = trows_(ss, 'shifts')[0] || null;
+  return sh;
+}
+/* Core send: resolves the recipient phone from the Employees tab. */
+function t3SendAlert_(ss, tenantId, event, toEmployeeId, vars) {
+  vars = vars || {};
+  var emp = toEmployeeId ? empById_(ss, toEmployeeId) : null;
+  var to = t3NormPhone_(emp ? emp.phone : '');
+  if (!to) {
+    var base = { id: tnextId_(ss, 'M', 'messageLog'), ts: t3NowISO_(), tenantId: tenantId,
+      channel: t3Channel_(ss), to: '', event: event, body: t3Body_(event, vars) };
+    t3LogRow_(ss, base, 'failed', 'No phone number on file for employee');
+    return { ok: true, sent: false, status: 'failed', error: 'No phone number on file for employee' };
+  }
+  return t3Dispatch_(ss, tenantId, t3Channel_(ss), to, event, t3Body_(event, vars));
+}
+
+/* ---------- API: sendAlert ---------- */
+API.sendAlert = function (user, opts) {
+  requireUser_(user);
+  need_(user, 'settings_manage');
+  opts = opts || {};
+  var ss = TSS_(user);
+  return t3SendAlert_(ss, user.tenantId || '', opts.event || 'manual',
+    opts.toEmployeeId, opts.vars || {});
+};
+
+/* ---------- API: runAlertChecks ----------
+   Called by the frontend after punch / devicePunch. Evaluates late arrival
+   (first check-in vs shift start + grace) and out-of-zone punches for one
+   employee on one date. Idempotent per (date, event, phone, punch time). */
+API.runAlertChecks = function (user, employeeId, date) {
+  requireUser_(user);
+  var ss = TSS_(user);
+  if (!employeeId) {
+    if (user.employeeId) employeeId = user.employeeId;
+    else throw new Error('Employee is required');
+  }
+  selfOnly_(user, employeeId);
+  date = date || todayStr_();
+  var emp = empById_(ss, employeeId);
+  if (!emp) throw new Error('Employee not found');
+  var out = { date: date, employeeId: employeeId, alerts: [] };
+  var att = trows_(ss, 'attendance').filter(function (a) {
+    return String(a.employeeId) === String(employeeId) && a.date === date;
+  });
+  if (t3On_(tsetting_(ss, 'alert_late', '1'))) {
+    var ins = att.filter(function (a) { return a.type === 'in'; })
+      .sort(function (a, b) { return String(a.time) < String(b.time) ? -1 : (String(a.time) > String(b.time) ? 1 : 0); });
+    var sh = t3ShiftFor_(ss, employeeId, date);
+    if (ins.length && sh && sh.startTime) {
+      var grace = num_(sh.graceMin || tsetting_(ss, 'graceMinutes', '15'));
+      var lateBy = minsBetween_(sh.startTime, ins[0].time) - grace;
+      if (lateBy > 0 && !t3Logged_(ss, date, 'late', emp.phone, ins[0].time)) {
+        out.alerts.push(t3SendAlert_(ss, user.tenantId || '', 'late', employeeId, {
+          name: emp.name, time: ins[0].time, shiftStart: sh.startTime,
+          grace: grace, lateBy: Math.round(lateBy)
+        }));
+      }
+    }
+  }
+  if (t3On_(tsetting_(ss, 'alert_out_of_zone', '1'))) {
+    var sites = {};
+    trows_(ss, 'sites').forEach(function (s) { sites[String(s.id)] = s; });
+    att.forEach(function (a) {
+      if (!bool_(a.outOfZone)) return;
+      if (t3Logged_(ss, date, 'out_of_zone', emp.phone, a.time)) return;
+      var site = sites[String(a.siteId)] || null;
+      out.alerts.push(t3SendAlert_(ss, user.tenantId || '', 'out_of_zone', employeeId, {
+        name: emp.name, type: a.type, time: a.time,
+        site: site ? site.name : 'unknown site', distance: a.distanceM || ''
+      }));
+    });
+  }
+  return out;
+};
+
+/* ---------- API: checkAbsences ----------
+   Daily sweep: active employees with no check-in for `date`, excluding
+   holidays, weekly offs and approved leave. For today, an employee counts as
+   absent only after shift start + absence_grace_minutes. */
+API.checkAbsences = function (user, date) {
+  requireUser_(user);
+  need_(user, 'attendance_view');
+  var ss = TSS_(user);
+  date = date || todayStr_();
+  var out = { date: date, checked: 0, absent: [], alerted: 0, skipped: '' };
+  if (date > todayStr_()) { out.skipped = 'future date'; return out; }
+  if (trows_(ss, 'holidays').some(function (h) { return h.date === date; })) {
+    out.skipped = 'holiday'; return out;
+  }
+  var wd = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date(date + 'T12:00:00').getDay()];
+  var working = String(tsetting_(ss, 'workingDays', 'Mon,Tue,Wed,Thu,Fri,Sat')).split(',');
+  if (working.indexOf(wd) < 0) { out.skipped = 'weekly off (' + wd + ')'; return out; }
+  var grace = num_(tsetting_(ss, 'absence_grace_minutes', '60'));
+  var nowT = timeStr_();
+  var isToday = (date === todayStr_());
+  var onLeave = {};
+  trows_(ss, 'leaveRequests').forEach(function (l) {
+    if (l.status === 'approved' && String(l.from) <= date && date <= String(l.to))
+      onLeave[String(l.employeeId)] = 1;
+  });
+  var punched = {};
+  trows_(ss, 'attendance').forEach(function (a) {
+    if (a.date === date && a.type === 'in') punched[String(a.employeeId)] = 1;
+  });
+  trows_(ss, 'employees').filter(function (e) { return bool_(e.active); }).forEach(function (e) {
+    if (punched[String(e.id)] || onLeave[String(e.id)]) return;
+    out.checked++;
+    var sh = t3ShiftFor_(ss, e.id, date);
+    var start = (sh && sh.startTime) ? sh.startTime : '09:00';
+    if (isToday && minsBetween_(start, nowT) <= grace) return;
+    out.absent.push({ employeeId: e.id, name: e.name, code: e.code, shiftStart: start });
+    if (t3On_(tsetting_(ss, 'alert_absent', '1')) && !t3Logged_(ss, date, 'absent', e.phone, date)) {
+      var r = t3SendAlert_(ss, user.tenantId || '', 'absent', e.id,
+        { name: e.name, date: date, shiftStart: start });
+      if (r.sent) out.alerted++;
+    }
+  });
+  return out;
+};
+
+/* ---------- API: alertLeaveDecision ----------
+   Called by the frontend right after decideLeave. Sends leave_approved or
+   leave_rejected to the employee. No-op when the event toggle is off or the
+   request is still pending. */
+API.alertLeaveDecision = function (user, requestId) {
+  requireUser_(user);
+  var ss = TSS_(user);
+  var l = trows_(ss, 'leaveRequests').filter(function (x) { return String(x.id) === String(requestId); })[0];
+  if (!l) throw new Error('Leave request not found');
+  if (l.status !== 'approved' && l.status !== 'rejected')
+    return { ok: true, status: 'skipped', reason: 'request still pending' };
+  if (!t3On_(tsetting_(ss, 'alert_leave_decision', '1')))
+    return { ok: true, status: 'skipped', reason: 'event disabled' };
+  var emp = empById_(ss, l.employeeId);
+  var lt = trows_(ss, 'leaveTypes').filter(function (t) { return String(t.id) === String(l.typeId); })[0] || {};
+  var ev = (l.status === 'approved') ? 'leave_approved' : 'leave_rejected';
+  /* match must appear verbatim in the message body for the dedupe check */
+  var match = String(l.from) + ' to ' + String(l.to) + ' (' + String(l.days) + ' days)';
+  if (t3Logged_(ss, todayStr_(), ev, emp ? emp.phone : '', match))
+    return { ok: true, status: 'skipped', reason: 'already sent' };
+  var r = t3SendAlert_(ss, user.tenantId || '', ev, l.employeeId, {
+    name: emp ? emp.name : '', type: lt.name || 'leave',
+    from: l.from, to: l.to, days: l.days, reason: l.reason || '', decidedBy: l.decidedBy || ''
+  });
+  return { ok: true, status: r.status };
+};
+
+/* ---------- API: listMessageLog ---------- */
+API.listMessageLog = function (user, limit) {
+  requireUser_(user);
+  need_(user, 'settings_manage');
+  var rows = trows_(TSS_(user), 'messageLog')
+    .sort(function (a, b) { return String(a.ts) < String(b.ts) ? -1 : (String(a.ts) > String(b.ts) ? 1 : 0); });
+  limit = num_(limit) || 50;
+  return rows.slice(0, limit).map(clean_);
+};
+
+/* ---------- API: resendAlert ----------
+   Retries one messageLog row with the current channel credentials. The row
+   itself is updated in place (new ts, new status). */
+API.resendAlert = function (user, logId) {
+  requireUser_(user);
+  need_(user, 'settings_manage');
+  var ss = TSS_(user);
+  var r = trows_(ss, 'messageLog').filter(function (x) { return String(x.id) === String(logId); })[0];
+  if (!r) throw new Error('Log entry not found');
+  var to = t3NormPhone_(r.to);
+  if (!to) throw new Error('No recipient number on this log entry');
+  var channel = t3ChannelFor_(ss, r.channel) || t3Channel_(ss);
+  var status, error;
+  try {
+    if (!channel) throw new Error('WhatsApp/SMS credentials not configured');
+    t3TrySend_(ss, channel, to, r.body);
+    status = 'sent'; error = '';
+  } catch (e) {
+    status = channel ? 'failed' : 'pending-config';
+    error = String((e && e.message) || e).slice(0, 500);
+  }
+  r.ts = t3NowISO_(); r.status = status; r.channel = channel; r.error = error;
+  tupdate_(ss, 'messageLog', r.id, clean_(r));
+  return { ok: true, status: status, error: error };
+};
+
+/* ---------- API: testAlert ----------
+   Sends a test message on an explicit channel to a given number. The channel
+   does not need to be enabled; missing credentials log pending-config. */
+API.testAlert = function (user, channel, to) {
+  requireUser_(user);
+  need_(user, 'settings_manage');
+  channel = String(channel || '').toLowerCase();
+  if (channel !== 'whatsapp' && channel !== 'sms') throw new Error('Channel must be whatsapp or sms');
+  to = t3NormPhone_(to);
+  if (!to) throw new Error('A test phone number is required');
+  var ss = TSS_(user);
+  return t3Dispatch_(ss, user.tenantId || '', t3ChannelFor_(ss, channel), to, 'test',
+    t3Body_('test', { channel: channel }));
+};
+
+/* ===== TRACK 5: geofence auto-punch ===== */
+/* Additive-only section for the native Android app. It does NOT modify
+   setupTenantSS() and does NOT modify the bodies of API.punch or
+   API.devicePunch. API.geofencePunch delegates to API.punch with source
+   'geofence-auto', so the existing duplicate-punch guard (same employee and
+   type within 5 minutes) and the device-binding check keep working exactly
+   as for manual punches. Auto punches skip the selfie (an empty string is
+   passed) but keep the geofence check: API.punch still records distanceM and
+   outOfZone via siteForPunch_ against the employee's assigned sites (or every
+   active site when none are assigned). */
+
+/* Per-employee automatic-attendance flags. Registered here instead of inside
+   setupTenantSS(): sheetOf_ reads SHEETS at call time and setupTenantSS()
+   reads TENANT_TABS at call time, so registering at load time keeps new-tenant
+   seeding working without touching setupTenantSS(). */
+SHEETS.employeeFlags = ['employeeId','autoPunch','updatedAt'];
+TENANT_TABS.push('employeeFlags');
+
+/* Idempotent seeder for this track. Called automatically by the track APIs
+   below so the tab always exists; the coordinator may also call it once per
+   tenant for existing tenants. New employees default to ON. */
+function seedTrack5Tabs_(ss) {
+  tsh_(ss, 'employeeFlags');
+  var seen = {};
+  trows_(ss, 'employeeFlags').forEach(function (r) { seen[String(r.employeeId)] = 1; });
+  trows_(ss, 'employees').forEach(function (e) {
+    if (!seen[String(e.id)]) {
+      tappend_(ss, 'employeeFlags', { employeeId: e.id, autoPunch: true, updatedAt: nowStr_() });
+    }
+  });
+  return true;
+}
+
+/* True when automatic (geofence) punching is enabled for the employee.
+   A missing flag row means ON (the default for all employees, new ones
+   included). */
+function autoPunchOn_(ss, employeeId) {
+  seedTrack5Tabs_(ss);
+  var r = trows_(ss, 'employeeFlags').filter(function (x) {
+    return String(x.employeeId) === String(employeeId);
+  })[0];
+  return r ? bool_(r.autoPunch) : true;
+}
+
+/* Active sites assigned to one employee, shaped for the native app payload.
+   When the employee has no assignments, every active site with coordinates
+   is returned (mirrors the siteForPunch_ fallback). */
+function assignedGeofences_(ss, employeeId) {
+  var assigned = trows_(ss, 'siteEmployees')
+    .filter(function (x) { return String(x.employeeId) === String(employeeId); })
+    .map(function (x) { return x.siteId; });
+  var pool = trows_(ss, 'sites').filter(function (s) {
+    if (!bool_(s.active)) return false;
+    if (assigned.length && assigned.indexOf(s.id) < 0) return false;
+    return s.lat !== null && s.lat !== '' && s.lng !== null && s.lng !== '';
+  });
+  if (!pool.length && !assigned.length) {
+    pool = trows_(ss, 'sites').filter(function (s) {
+      return bool_(s.active) && s.lat !== null && s.lat !== '' && s.lng !== null && s.lng !== '';
+    });
+  }
+  return pool.map(function (s) {
+    return { siteId: s.id, name: s.name, lat: num_(s.lat), lng: num_(s.lng),
+             radiusM: num_(s.radiusM) || 200 };
+  });
+}
+
+/* Native-app entry point.
+   payload: {employeeId, type ('in' or 'out'), lat, lng, deviceId}
+   Rejects with 'auto-punch disabled' when the employee toggle is off.
+   Duplicate-punch guard, device binding and the geofence distance check run
+   inside API.punch; the punch row records source 'geofence-auto', an empty
+   selfie, plus distanceM and outOfZone like a manual punch. */
+API.geofencePunch = function (user, payload) {
+  requireUser_(user);
+  payload = payload || {};
+  if (!payload.employeeId) throw new Error('Employee is required');
+  var ss = TSS_(user);
+  if (!autoPunchOn_(ss, payload.employeeId)) throw new Error('auto-punch disabled');
+  return API.punch(user, payload.employeeId, payload.type, payload.lat, payload.lng,
+                   '', payload.deviceId, 'geofence-auto');
+};
+
+/* Per-employee automatic-attendance toggle. The employee may toggle only
+   their own record; admin and hr may toggle anyone. */
+API.setAutoPunch = function (user, employeeId, on) {
+  requireUser_(user);
+  if (!employeeId) throw new Error('Employee is required');
+  var ss = TSS_(user);
+  if (!empById_(ss, employeeId)) throw new Error('Employee not found');
+  if (user.role === 'employee' || user.role === 'user') selfOnly_(user, employeeId);
+  else need_(user, 'employees_manage');
+  seedTrack5Tabs_(ss);
+  var obj = { employeeId: employeeId, autoPunch: !!on, updatedAt: nowStr_() };
+  var exists = trows_(ss, 'employeeFlags').filter(function (x) {
+    return String(x.employeeId) === String(employeeId);
+  })[0];
+  if (exists) tupdate_(ss, 'employeeFlags', employeeId, obj);
+  else tappend_(ss, 'employeeFlags', obj);
+  audit_(user, 'setAutoPunch', employeeId + ' autoPunch=' + (!!on ? 'on' : 'off'));
+  return { employeeId: employeeId, autoPunch: !!on };
+};
+
+/* Read the automatic-attendance toggle. Employees read only their own;
+   defaults to employeeId from the session when omitted. */
+API.getAutoPunch = function (user, employeeId) {
+  requireUser_(user);
+  var ss = TSS_(user);
+  var eid = employeeId || user.employeeId;
+  if (!eid) throw new Error('Employee is required');
+  if (user.role === 'employee' || user.role === 'user') selfOnly_(user, eid);
+  return { employeeId: eid, autoPunch: autoPunchOn_(ss, eid) };
+};
+
+/* Geofence list for the caller (the native app refreshes with this instead
+   of scraping the WebView). Returns [{siteId,name,lat,lng,radiusM}]. */
+API.getAssignedGeofences = function (user, employeeId) {
+  requireUser_(user);
+  var ss = TSS_(user);
+  var eid = employeeId || user.employeeId;
+  if (!eid) throw new Error('Employee is required');
+  if (user.role === 'employee' || user.role === 'user') selfOnly_(user, eid);
+  if (!empById_(ss, eid)) throw new Error('Employee not found');
+  return assignedGeofences_(ss, eid);
+};
+
+/* ===== TRACK 6: HR rules engine =====
+   Coordinator appends this whole section to Code.gs; Code.gs itself is never
+   edited by this track. Additive only: a new tenant-level "rules" tab
+   (key, value, valueType, description, updatedAt), a typed getRule_() reader,
+   and the getRules / saveRule APIs. Existing hardcoded values (duplicate-punch
+   window, shift grace default, late threshold, out-of-zone handling,
+   auto-absent cut-off) become rule-driven through the snippets in
+   patches_track6.md; this file only ADDS the engine they read from.
+
+   The four payroll keys (absentDeductionPerDay, lateGraceMinutes,
+   latePenaltyMinutes, overtimeRateMultiplier) are stored as tenant Settings
+   keys by track 2. getRule_() falls back to the Settings value for them when
+   no rule row exists, so a tenant keeps working before anyone overrides. */
+
+/* --- schema registration (idempotent; runs once when this section loads) --- */
+if (!SHEETS.rules) SHEETS.rules = ['key', 'value', 'valueType', 'description', 'updatedAt'];
+if (TENANT_TABS.indexOf('rules') < 0) TENANT_TABS.push('rules');
+
+/* --- rule catalog: key, type, default, validation range, description ---
+   type is one of: int | float | bool | string | time. settingsBacked rules
+   are owned by track 2 as Settings keys and are only seeded as rows when an
+   admin explicitly overrides them through saveRule. */
+var T6_META = [
+  { key: 'duplicatePunchWindowMinutes', type: 'int', def: 5, min: 0, max: 60, group: 'attendance',
+    desc: 'Duplicate punch guard: a second punch of the same type for the same employee inside this many minutes is rejected.' },
+  { key: 'lateGraceMinutes', type: 'int', def: 15, min: 0, max: 180, group: 'attendance', settingsBacked: true,
+    desc: 'Grace minutes after shift start before an arrival counts as late. Also the default grace for new shifts. Lives in Settings unless a rule row overrides it.' },
+  { key: 'lateThresholdMinutes', type: 'int', def: 10, min: 0, max: 180, group: 'attendance',
+    desc: 'Minutes past shift start (after grace) after which the arrival is marked late in attendance reports.' },
+  { key: 'autoAbsentCutoffTime', type: 'time', def: '10:00', group: 'attendance',
+    desc: 'Daily cut-off time (24-hour HH:MM): employees with no in-punch by this time are auto-marked absent.' },
+  { key: 'outOfZonePolicy', type: 'string', def: 'flag', options: ['flag', 'block'], group: 'attendance',
+    desc: 'Out-of-zone punch handling: flag records the punch and marks it out-of-zone; block rejects the punch.' },
+  { key: 'overtimeAutoEligible', type: 'bool', def: true, group: 'attendance',
+    desc: 'When ON, employees who work past their shift end are automatically eligible for overtime.' },
+  { key: 'probationDays', type: 'int', def: 90, min: 0, max: 3650, group: 'attendance',
+    desc: 'Probation length in days from join date; employees still in probation are not eligible for paid leave.' },
+  { key: 'absentDeductionPerDay', type: 'float', def: 30, min: 0, max: 31, group: 'payroll', settingsBacked: true,
+    desc: 'Pay deduction per absent day, in the same unit as the salary structure (days or amount). Lives in Settings unless a rule row overrides it.' },
+  { key: 'latePenaltyMinutes', type: 'float', def: 60, min: 0, max: 480, group: 'payroll', settingsBacked: true,
+    desc: 'Minutes of pay deducted for each late arrival. Lives in Settings unless a rule row overrides it.' },
+  { key: 'overtimeRateMultiplier', type: 'float', def: 1.5, min: 0, max: 10, group: 'payroll', settingsBacked: true,
+    desc: 'Multiplier applied to the hourly rate for overtime pay. Lives in Settings unless a rule row overrides it.' }
+];
+
+function t6meta_(key) {
+  return T6_META.filter(function (m) { return m.key === key; })[0] || null;
+}
+
+/* --- idempotent seeder: creates the tab and seeds non-Settings rules once.
+   Called defensively by every track API, so the coordinator may also run it
+   once per existing tenant. */
+function seedTrack6Tabs_(ss) {
+  tsh_(ss, 'rules');
+  var have = {};
+  trows_(ss, 'rules').forEach(function (r) { have[r.key] = true; });
+  T6_META.forEach(function (m) {
+    if (m.settingsBacked) return;
+    if (!have[m.key]) tappend_(ss, 'rules',
+      { key: m.key, value: val_(m.def), valueType: m.type, description: m.desc, updatedAt: nowStr_() });
+  });
+  return true;
+}
+
+/* --- typed coercion for a stored rule value --- */
+function coerceRule_(v, type) {
+  if (type === 'int') { var n = parseInt(v, 10); return isNaN(n) ? 0 : n; }
+  if (type === 'float') { var f = parseFloat(v); return isNaN(f) ? 0 : f; }
+  if (type === 'bool') return bool_(v);
+  if (type === 'time') return String(v === null || v === undefined ? '' : v).slice(0, 5);
+  return String(v === null || v === undefined ? '' : v);
+}
+
+/* --- the one reader every rule-driven backend function calls ---
+   Resolution order: rules tab row, then the tenant Settings tab for the four
+   payroll keys owned by track 2, then the supplied default. */
+function getRule_(ss, key, defaultValue) {
+  var r = trows_(ss, 'rules').filter(function (x) { return x.key === key; })[0];
+  if (r) return coerceRule_(r.value, r.valueType);
+  var m = t6meta_(key);
+  if (m && m.settingsBacked) {
+    var sv = tsetting_(ss, key, null);
+    if (sv !== null && sv !== undefined && sv !== '') return coerceRule_(sv, m.type);
+  }
+  return defaultValue;
+}
+
+/* --- validation for saveRule --- */
+function t6validate_(m, value) {
+  if (m.options) {
+    var s = String(value === null || value === undefined ? '' : value);
+    if (m.options.indexOf(s) < 0)
+      throw new Error('Invalid value for ' + m.key + ': must be one of ' + m.options.join(', '));
+    return s;
+  }
+  if (m.type === 'time') {
+    var t = String(value === null || value === undefined ? '' : value).slice(0, 5);
+    if (!/^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(t))
+      throw new Error('Invalid time for ' + m.key + ': expected 24-hour HH:MM');
+    return t;
+  }
+  if (m.type === 'bool') return bool_(value);
+  if (m.type === 'int' || m.type === 'float') {
+    var n = m.type === 'int' ? parseInt(value, 10) : parseFloat(value);
+    if (isNaN(n)) throw new Error('Invalid number for ' + m.key);
+    if (n < m.min || n > m.max)
+      throw new Error(m.key + ' must be between ' + m.min + ' and ' + m.max);
+    return m.type === 'int' ? Math.floor(n) : n;
+  }
+  return String(value === null || value === undefined ? '' : value);
+}
+
+/* --- read all rules with their effective values (admin + HR) --- */
+API.getRules = function (user) {
+  requireUser_(user);
+  if (['admin', 'hr', 'superadmin'].indexOf(user.role) < 0)
+    throw new Error('Permission denied: HR rules are visible to admin and HR roles only');
+  var ss = TSS_(user);
+  seedTrack6Tabs_(ss);
+  var rows = {};
+  trows_(ss, 'rules').forEach(function (r) { rows[r.key] = true; });
+  return T6_META.map(function (m) {
+    var sv = m.settingsBacked ? tsetting_(ss, m.key, null) : null;
+    var source = rows[m.key] ? 'rule'
+      : (sv !== null && sv !== undefined && sv !== '' ? 'settings' : 'default');
+    var o = { key: m.key, value: getRule_(ss, m.key, m.def), valueType: m.type,
+      group: m.group, description: m.desc, settingsBacked: !!m.settingsBacked, source: source };
+    if (m.options) o.options = m.options;
+    return o;
+  });
+};
+
+/* --- change one rule (admin only) --- */
+API.saveRule = function (user, key, value) {
+  requireUser_(user);
+  if (['admin', 'superadmin'].indexOf(user.role) < 0)
+    throw new Error('Permission denied: only admins can change HR rules');
+  var ss = TSS_(user);
+  seedTrack6Tabs_(ss);
+  var m = t6meta_(key);
+  if (!m) throw new Error('Unknown rule key: ' + key);
+  var v = t6validate_(m, value);
+  var heads = SHEETS.rules;
+  var row = { key: key, value: v, valueType: m.type, description: m.desc, updatedAt: nowStr_() };
+  var ex = trows_(ss, 'rules').filter(function (x) { return x.key === key; })[0];
+  if (ex) {
+    sheetOf_(ss, 'rules').getRange(ex._row, 1, 1, heads.length)
+      .setValues([heads.map(function (k) { return val_(row[k]); })]);
+  } else {
+    tappend_(ss, 'rules', row);
+  }
+  audit_(user, 'saveRule', key + ' = ' + v);
+  return { key: key, value: v, valueType: m.type };
+};
+
+/* ===== TRACK 7: rich demo data (perception fix) =====
+   Seeds tasteful, realistic sample rows for the DEMO tenant only, so the
+   Overtime, Holidays, Rosters, Payroll, Pay Components, Contractors,
+   Contractor Bills, Attendance history, Salary Structures and Message Log
+   pages open with content on first login instead of looking empty.
+   Wiring: the coordinator calls seedTrack7Demo_(ss) inside seedDemo() after
+   the demo employees, sites and shifts exist, and after the parallel track
+   tab seeders (seedTrackNTabs_) have created their tabs. This file never
+   touches Code.gs or seedDemo() directly.
+   Every tab is seeded only when it has no rows yet, so re-running never
+   duplicates. Wherever a real API enforces validation, seeding goes through
+   that API (requestOvertime, decideOvertime, saveHoliday, saveRoster,
+   savePayComponent, runPayroll, markPayslipPaid, saveContractor,
+   saveContractorBill, decideContractorBill, requestLeave, decideLeave,
+   saveSalaryStructure). Historical attendance punches are written straight
+   to the tab because API.punch always stamps the current day; each row is
+   built exactly the way API.punch builds it (same header order, site
+   resolution through siteForPunch_). All dates are ISO strings. Sample rows
+   carry a (demo sample) marker so they read as examples, not real data. */
+
+/* Admin session for API calls: the demo tenant admin created by seedDemo. */
+function t7admin_(ss) {
+  return { id: 'U-0001', name: 'Admin', username: 'admin', role: 'admin',
+           spreadsheetId: ss.getId() };
+}
+
+/* Demo employee id by its EMP-00x code (seeded by seedDemo). */
+function t7empId_(ss, code) {
+  var r = trows_(ss, 'employees').filter(function (e) { return String(e.code) === code; })[0];
+  return r ? String(r.id) : '';
+}
+
+/* Demo site id by name. */
+function t7siteId_(ss, name) {
+  var r = trows_(ss, 'sites').filter(function (s) { return String(s.name) === name; })[0];
+  return r ? String(r.id) : '';
+}
+
+/* One historical attendance punch, built exactly like API.punch builds rows.
+   API.punch cannot be used because it always stamps the current day. */
+function t7punch_(ss, employeeId, date, type, time, lat, lng, deviceId) {
+  var site = siteForPunch_(ss, employeeId, lat, lng);
+  tappend_(ss, 'attendance', {
+    id: tnextId_(ss, 'P', 'attendance'), employeeId: employeeId, date: date,
+    type: type, time: time, lat: num_(lat), lng: num_(lng), selfie: '',
+    siteId: site ? site.id : '',
+    distanceM: site ? Math.round(site.distanceM) : '',
+    outOfZone: site ? !!site.outOfZone : true,
+    source: 'app', deviceId: deviceId || '', syncedAt: nowStr_(),
+    note: 'Demo sample punch'
+  });
+}
+
+/* Seed rich demo data for the demo tenant. Idempotent: a tab is seeded only
+   when it has no rows yet. */
+function seedTrack7Demo_(ss, tenantId) {
+  var admin = t7admin_(ss);
+  tenantId = tenantId || '';
+
+  /* Parallel track tabs: call their seeders, never their internals. */
+  if (typeof seedTrack2Tabs_ === 'function') seedTrack2Tabs_(ss);
+
+  /* Demo employees EMP-001..EMP-006 and the two demo sites must exist. */
+  var E = {};
+  ['EMP-001', 'EMP-002', 'EMP-003', 'EMP-004', 'EMP-005', 'EMP-006'].forEach(function (c) {
+    E[c] = t7empId_(ss, c);
+    if (!E[c]) throw new Error('seedTrack7Demo_ needs demo employee ' + c);
+  });
+  var S1 = t7siteId_(ss, 'Main Site Gulberg');
+  var S2 = t7siteId_(ss, 'DHA Site Lahore');
+  if (!S1 || !S2) throw new Error('seedTrack7Demo_ needs the demo sites');
+
+  /* ---- overtime: pending, approved, rejected ---- */
+  if (!trows_(ss, 'overtime').length) {
+    var ot1 = API.requestOvertime(admin, E['EMP-001'], addDays_(todayStr_(), -2), 3, 500,
+      'Concrete pour ran past shift end (demo sample)');
+    var ot2 = API.requestOvertime(admin, E['EMP-002'], addDays_(todayStr_(), -4), 2.5, 500,
+      'Material unloading after shift (demo sample)');
+    var ot3 = API.requestOvertime(admin, E['EMP-003'], addDays_(todayStr_(), -7), 4, 450,
+      'Weekend standby claimed (demo sample)');
+    API.decideOvertime(admin, ot2, true);
+    API.decideOvertime(admin, ot3, false);
+  }
+
+  /* ---- holidays: past + upcoming Pakistan public holidays ---- */
+  if (!trows_(ss, 'holidays').length) {
+    [['2026-08-14', 'Independence Day'],
+     ['2026-08-27', 'Eid Milad-un-Nabi'],
+     ['2026-11-09', 'Iqbal Day'],
+     ['2026-12-25', 'Quaid-e-Azam Day']
+    ].forEach(function (h) {
+      API.saveHoliday(admin, { date: h[0], name: h[1] });
+    });
+  }
+
+  /* ---- rosters: one full Mon-Sun week across demo sites and shifts ---- */
+  if (!trows_(ss, 'rosters').length) {
+    var week = ['2026-10-05', '2026-10-06', '2026-10-07', '2026-10-08',
+                '2026-10-09', '2026-10-10'];
+    week.forEach(function (d) {
+      API.saveRoster(admin, { date: d, employeeId: E['EMP-001'], shiftId: 'SH-0001', siteId: S1 });
+      API.saveRoster(admin, { date: d, employeeId: E['EMP-002'], shiftId: 'SH-0001', siteId: S1 });
+      API.saveRoster(admin, { date: d, employeeId: E['EMP-003'], shiftId: 'SH-0001', siteId: S1 });
+      API.saveRoster(admin, { date: d, employeeId: E['EMP-004'], shiftId: 'SH-0002', siteId: S1 });
+      API.saveRoster(admin, { date: d, employeeId: E['EMP-005'], shiftId: 'SH-0001', siteId: S2 });
+      API.saveRoster(admin, { date: d, employeeId: E['EMP-006'], shiftId: 'SH-0001', siteId: S2 });
+    });
+    /* Sunday night-shift cover at the main site */
+    API.saveRoster(admin, { date: '2026-10-11', employeeId: E['EMP-001'], shiftId: 'SH-0003', siteId: S1 });
+    API.saveRoster(admin, { date: '2026-10-11', employeeId: E['EMP-002'], shiftId: 'SH-0003', siteId: S1 });
+  }
+
+  /* ---- pay components: allowances + one deduction, approved ---- */
+  if (!trows_(ss, 'payComponents').length) {
+    API.savePayComponent(admin, { name: 'House Allowance', kind: 'allowance',
+      amount: 15000, appliesTo: 'all', approved: true });
+    API.savePayComponent(admin, { name: 'Conveyance Allowance', kind: 'allowance',
+      amount: 5000, appliesTo: 'all', approved: true });
+    API.savePayComponent(admin, { name: 'Provident Fund', kind: 'deduction',
+      amount: 2000, appliesTo: 'all', approved: true });
+  }
+
+  /* ---- payroll: one completed, fully-paid run for last month ---- */
+  if (!trows_(ss, 'payrollRuns').length) {
+    var run = API.runPayroll(admin, '2026-09',
+      [E['EMP-001'], E['EMP-002'], E['EMP-003']]);
+    run.slips.forEach(function (id) { API.markPayslipPaid(admin, id); });
+    var rr = trows_(ss, 'payrollRuns').filter(function (x) { return x.id === run.runId; })[0];
+    if (rr) {
+      rr = clean_(rr);
+      rr.status = 'completed';
+      tupdate_(ss, 'payrollRuns', rr.id, rr);
+    }
+  }
+
+  /* ---- contractors + bills: mixed paid and pending ---- */
+  if (!trows_(ss, 'contractors').length) {
+    var c1 = API.saveContractor(admin, { name: 'Rashid Mehmood', company: 'RM Builders',
+      phone: '0300-7777777', rate: 25000, active: true });
+    var c2 = API.saveContractor(admin, { name: 'Khalid Javed', company: 'KJ Electricals',
+      phone: '0300-8888888', rate: 18000, active: true });
+    var b1 = API.saveContractorBill(admin, { contractorId: c1, month: '2026-08',
+      amount: 750000, note: 'August labor supply (demo sample)' });
+    var b2 = API.saveContractorBill(admin, { contractorId: c1, month: '2026-09',
+      amount: 800000, note: 'September labor supply (demo sample)' });
+    var b3 = API.saveContractorBill(admin, { contractorId: c2, month: '2026-09',
+      amount: 540000, note: 'September electrical work (demo sample)' });
+    API.decideContractorBill(admin, b1, true);
+    API.decideContractorBill(admin, b2, true);
+  }
+
+  /* ---- extra attendance punches across past days ----
+     On-time, late and one out-of-zone pair, near the Lahore demo sites. */
+  if (!trows_(ss, 'attendance').some(function (a) { return a.note === 'Demo sample punch'; })) {
+    var P = [
+      ['2026-10-02', 'EMP-001', 'in',  '07:58:12', 31.5205, 74.3588, 'DEV-001'],
+      ['2026-10-02', 'EMP-001', 'out', '17:05:44', 31.5205, 74.3588, 'DEV-001'],
+      ['2026-10-02', 'EMP-002', 'in',  '08:22:30', 31.5206, 74.3586, ''],
+      ['2026-10-02', 'EMP-002', 'out', '17:12:05', 31.5206, 74.3586, ''],
+      ['2026-10-05', 'EMP-001', 'in',  '08:02:41', 31.5205, 74.3588, 'DEV-001'],
+      ['2026-10-05', 'EMP-001', 'out', '17:00:19', 31.5205, 74.3588, 'DEV-001'],
+      ['2026-10-05', 'EMP-004', 'in',  '08:10:03', 31.5203, 74.3589, ''],
+      ['2026-10-05', 'EMP-004', 'out', '17:03:55', 31.5203, 74.3589, ''],
+      ['2026-10-06', 'EMP-003', 'in',  '08:15:20', 31.5300, 74.3700, ''],
+      ['2026-10-06', 'EMP-003', 'out', '17:01:33', 31.5300, 74.3700, ''],
+      ['2026-10-06', 'EMP-005', 'in',  '08:55:10', 31.5498, 74.3437, ''],
+      ['2026-10-06', 'EMP-005', 'out', '18:00:22', 31.5498, 74.3437, '']
+    ];
+    P.forEach(function (p) {
+      t7punch_(ss, E[p[1]], p[0], p[2], p[3], p[4], p[5], p[6]);
+    });
+  }
+
+  /* ---- one more leave request, approved (sick leave) ---- */
+  if (!trows_(ss, 'leaveRequests').some(function (l) {
+        return String(l.reason).indexOf('demo sample') >= 0; })) {
+    var lr = API.requestLeave(admin, E['EMP-004'], 'LT-0002',
+      '2026-09-21', '2026-09-22', 2, 'Flu, doctor advised rest (demo sample)');
+    API.decideLeave(admin, lr, true);
+  }
+
+  /* ---- salary structures (track 2 tab) ---- */
+  if (typeof seedTrack2Tabs_ === 'function' && typeof API.saveSalaryStructure === 'function' &&
+      !trows_(ss, 'salaryStructures').length) {
+    API.saveSalaryStructure(admin, { employeeId: E['EMP-001'], basic: 60000,
+      allowancesJson: JSON.stringify({ 'House Allowance': 15000, Conveyance: 5000 }),
+      effectiveFrom: '2026-07-01', payFrequency: 'monthly' });
+    API.saveSalaryStructure(admin, { employeeId: E['EMP-005'], basic: 75000,
+      allowancesJson: JSON.stringify({ 'House Allowance': 18000, Conveyance: 6000 }),
+      effectiveFrom: '2026-07-01', payFrequency: 'monthly' });
+  }
+
+  /* ---- message log: track 3's schema (id,ts,tenantId,channel,to,event,body,status,error). ---- */
+  if (!trows_(ss, 'messageLog').length) {
+    tappend_(ss, 'messageLog', { id: tnextId_(ss, 'M', 'messageLog'), ts: t3NowISO_(), tenantId: tenantId,
+      channel: 'whatsapp', to: '0300-1111111', event: 'payslip_ready',
+      body: 'Demo sample: September payslip is ready, net pay PKR 78,000.',
+      status: 'pending-config', error: '' });
+    tappend_(ss, 'messageLog', { id: tnextId_(ss, 'M', 'messageLog'), ts: t3NowISO_(), tenantId: tenantId,
+      channel: 'sms', to: '0300-3333333', event: 'out_of_zone',
+      body: 'Demo sample: out-of-zone punch recorded on 2026-10-06.',
+      status: 'pending-config', error: '' });
+  }
+
+  return 'track7 demo seeded';
 }
