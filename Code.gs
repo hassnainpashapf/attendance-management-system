@@ -382,11 +382,36 @@ var API = {
     var s = {};
     trows_(ss, 'settings').forEach(function (x) { s[x.key] = x.value; });
     var pm = trows_(ss, 'rolePermissions').filter(function (p) { return p.role === user.role; })[0];
+    var flat = {};
+    try { flat = pm ? JSON.parse(pm.matrix || '{}') : {}; } catch (e) { flat = {}; }
+    /* The stored matrix uses flat keys (employees_manage, payroll_view, ...);
+       the frontend perm(module, action) needs nested {module:{action:1}}.
+       manage/edit imply view+edit; approve/request/own imply view. */
+    var permissions = {};
+    Object.keys(flat).forEach(function (k) {
+      if (!flat[k]) return;
+      var i = k.lastIndexOf('_');
+      if (i < 0) return;
+      var mod = k.substring(0, i), act = k.substring(i + 1);
+      if (!permissions[mod]) permissions[mod] = {};
+      permissions[mod][act] = 1;
+      if (act === 'manage' || act === 'edit') { permissions[mod].view = 1; permissions[mod].edit = 1; }
+      if (act === 'approve' || act === 'request' || act === 'own') { permissions[mod].view = 1; }
+    });
+    /* dashboard + punch are nav-level grants implied by role */
+    if (user.role === 'admin' || user.role === 'hr' || user.role === 'manager') {
+      if (!permissions.dashboard) permissions.dashboard = {};
+      permissions.dashboard.view = 1;
+    }
+    if (user.role === 'admin' || user.role === 'hr') {
+      if (!permissions.punch) permissions.punch = {};
+      permissions.punch.view = 1;
+    }
     var tenant = rows_('tenants').filter(function (t) { return t.tenantId === user.tenantId; })[0] || null;
     var emp = user.employeeId ? empById_(ss, user.employeeId) : null;
     return {
       user: user,
-      permissions: pm ? JSON.parse(pm.matrix || '{}') : {},
+      permissions: permissions,
       settings: s,
       tenant: tenant ? clean_(tenant) : null,
       employee: emp ? clean_(emp) : null
@@ -1968,13 +1993,13 @@ function setupTenantSS(ss, companyName) {
   if (typeof seedTrack6Tabs_ === 'function') seedTrack6Tabs_(ss);
 
   var perms = {
-    admin:   { employees_manage: 1, sites_manage: 1, shifts_manage: 1, attendance_view: 1,
+    admin:   { dashboard_view: 1, punch_view: 1, employees_manage: 1, sites_manage: 1, shifts_manage: 1, attendance_view: 1,
                attendance_manage: 1, leave_manage: 1, leave_approve: 1, overtime_approve: 1,
                payroll_view: 1, payroll_manage: 1, documents_manage: 1, reports_view: 1, settings_manage: 1 },
-    hr:      { employees_manage: 1, sites_manage: 1, shifts_manage: 1, attendance_view: 1,
+    hr:      { dashboard_view: 1, punch_view: 1, employees_manage: 1, sites_manage: 1, shifts_manage: 1, attendance_view: 1,
                attendance_manage: 1, leave_manage: 1, leave_approve: 1, overtime_approve: 1,
                payroll_view: 1, payroll_manage: 1, documents_manage: 1, reports_view: 1, settings_manage: 1 },
-    manager: { employees_view: 1, attendance_view: 1, leave_approve: 1, overtime_approve: 1,
+    manager: { dashboard_view: 1, employees_view: 1, attendance_view: 1, leave_approve: 1, overtime_approve: 1,
                reports_view: 1, documents_view: 1 },
     employee:{ punch_own: 1, leave_request: 1, overtime_request: 1, own_view: 1 },
     user:    { own_view: 1 }
