@@ -3,7 +3,7 @@
 (function(){
 'use strict';
 
-App.nav.push({group:'SYSTEM', path:'#/settings', label:'Settings', icon:'settings', perm:'settings'});
+App.nav.push({group:'SYSTEM', path:'#/settings', label:I18N.t('c4.nav.settings'), labelKey:'c4.nav.settings', icon:'settings', perm:'settings'});
 
 const MODULES=[
   ['dashboard','Dashboard'],['punch','My Punch'],['attendance','Attendance'],

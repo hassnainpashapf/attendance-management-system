@@ -247,7 +247,7 @@ async function punchWithFaceCheck(origCall, args){
 /* ---------------- #/face enrollment page ---------------- */
 if (typeof App !== 'undefined' && App.nav){
   App.ICONS.face = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5 shrink-0"><circle cx="12" cy="12" r="8.5"/><circle cx="9.2" cy="10" r="0.9" fill="currentColor" stroke="none"/><circle cx="14.8" cy="10" r="0.9" fill="currentColor" stroke="none"/><path d="M8.5 14.5c1 1.2 2.2 1.8 3.5 1.8s2.5-0.6 3.5-1.8"/></svg>';
-  App.nav.push({ group: 'WORKFORCE', path: '#/face', label: I18N.t('t1.nav'), icon: 'face', perm: 'employees' });
+  App.nav.push({ group: 'WORKFORCE', path: '#/face', label: I18N.t('t1.nav'), labelKey: 't1.nav', icon: 'face', perm: 'employees' });
 
   App.routes['#/face'] = async function(el){
     if (!perm('employees', 'view')){

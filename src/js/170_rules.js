@@ -55,7 +55,7 @@ Object.assign(I18N.dict.ur, {
 });
 
 /* ---------- nav + route (runtime registration, no existing file touched) ---------- */
-App.nav.push({group:'SYSTEM', path:'#/rules', label:I18N.t('t6.nav'), icon:'settings', perm:'settings'});
+App.nav.push({group:'SYSTEM', path:'#/rules', label:I18N.t('t6.nav'), labelKey:'t6.nav', icon:'settings', perm:'settings'});
 
 const T6_BADGE = {
   rule: 'bg-teal-50 text-teal-700 ring-teal-600/20',

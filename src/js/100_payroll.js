@@ -3,7 +3,7 @@
 (function(){
 'use strict';
 
-App.nav.push({group:'MONEY', path:'#/payroll', label:'Payroll', icon:'payroll', perm:'payroll'});
+App.nav.push({group:'MONEY', path:'#/payroll', label:I18N.t('c4.nav.payroll'), labelKey:'c4.nav.payroll', icon:'payroll', perm:'payroll'});
 
 App.routes['#/payroll'] = async (el, params)=>{
   const cid=uid('pay');
