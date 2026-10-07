@@ -2489,6 +2489,22 @@ if(document.readyState==='loading') document.addEventListener('DOMContentLoaded'
 else boot();
 App.ICONS=ICONS;
 App.boot=boot; App.route=route;
+
+/* TEMP DEBUG ROUTE (remove before release): shows nav items + bootstrap perms */
+App.nav.push({group:'SYSTEM', path:'#/debug', label:'Debug', icon:'settings', perm:'dashboard'});
+App.routes['#/debug'] = async function(el){
+  var navLines = App.nav.map(function(n){
+    var ok = false; try { ok = perm(n.perm,'view'); } catch(e){}
+    return n.path + ' | group=' + n.group + ' | perm=' + n.perm + ' | visible=' + ok;
+  }).join('\n');
+  var perms = {};
+  try { perms = (Session.bootstrap||{}).permissions || {}; } catch(e){}
+  el.innerHTML = '<div class="p-6 max-w-4xl"><h1 class="text-xl font-bold mb-2">Debug</h1>' +
+    '<h2 class="font-bold mt-4 mb-1">Nav items (' + App.nav.length + ')</h2>' +
+    '<pre class="text-xs bg-slate-100 p-3 rounded overflow-auto">' + navLines.replace(/</g,'&lt;') + '</pre>' +
+    '<h2 class="font-bold mt-4 mb-1">Bootstrap permissions</h2>' +
+    '<pre class="text-xs bg-slate-100 p-3 rounded overflow-auto">' + JSON.stringify(perms, null, 1).replace(/</g,'&lt;') + '</pre></div>';
+};
 })();
 
 
