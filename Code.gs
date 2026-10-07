@@ -56,14 +56,44 @@ var SHEETS = {
 var TENANT_TABS = Object.keys(SHEETS).filter(function (k) { return k !== 'tenants' && k !== 'saasUsers'; });
 
 /* ---------------- web app entry ---------------- */
+/* The frontend ships as 3 small HTML files (the Apps Script editor hangs when
+   saving files > ~300KB). index.html holds part 1 inline plus two placeholders;
+   app2.html / app3.html are minimal VALID HTML documents each wrapping one
+   <script> block. NOTE: createHtmlOutputFromFile('app2').getContent() returns
+   EMPTY when the file is a bare <script> fragment instead of a valid document,
+   so the parts must stay valid documents and we extract the script block here
+   with pure string ops (no templates/scriptlets). */
+function partScript(name) {
+  var doc = HtmlService.createHtmlOutputFromFile(name).getContent();
+  var i = doc.indexOf('<script>');
+  var j = doc.lastIndexOf('</script>');
+  if (i < 0 || j < 0 || j <= i) throw new Error('part ' + name + ' has no <script> block (got ' + doc.length + ' chars)');
+  return doc.substring(i, j + 9);
+}
 function doGet() {
   var html = HtmlService.createHtmlOutputFromFile('index').getContent();
-  html = html.split('<!--APP_PART_2-->').join(HtmlService.createHtmlOutputFromFile('app2').getContent());
-  html = html.split('<!--APP_PART_3-->').join(HtmlService.createHtmlOutputFromFile('app3').getContent());
+  html = html.split('<!--APP_PART_2-->').join(partScript('app2'));
+  html = html.split('<!--APP_PART_3-->').join(partScript('app3'));
+  if (html.indexOf('<!--APP_PART_') >= 0) throw new Error('doGet: unreplaced APP_PART placeholder');
   return HtmlService.createHtmlOutput(html)
     .setTitle('Attendance Management System')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+/* Editor-runnable diagnostic: verifies every frontend part extracts non-empty.
+   Run this after pasting files and before deploying a new version. */
+function verifyAssembly() {
+  var out = {};
+  ['index', 'app2', 'app3'].forEach(function (name) {
+    var doc = HtmlService.createHtmlOutputFromFile(name).getContent();
+    out[name + '_docChars'] = doc.length;
+  });
+  out.app2_scriptChars = partScript('app2').length;
+  out.app3_scriptChars = partScript('app3').length;
+  out.app2_hasBoot = partScript('app2').indexOf('11_layout.js') >= 0;
+  out.app3_hasDashboard = partScript('app3').indexOf('20_dashboard.js') >= 0;
+  Logger.log(JSON.stringify(out));
+  return out;
 }
 
 /* HTTP entry for native clients (Android auto-punch service). Accepts a JSON

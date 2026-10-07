@@ -6,16 +6,22 @@ the frontend JS (~318KB) is split at file boundaries into 3 parts, each
 <=110KB, shipped as 3 HTML files and reassembled in doGet() with pure string
 replacement (NO templates/scriptlets).
 
+CRITICAL: app2.html / app3.html MUST be complete, valid HTML documents (not
+bare <script> fragments) — HtmlService.createHtmlOutputFromFile().getContent()
+returns EMPTY for fragment files, which shipped a blank page (the boot code
+lives in part 2). doGet() extracts each part's single <script> block with
+indexOf/lastIndexOf and inserts it at the placeholder.
+
 Outputs (all in deploy/):
   index.html      - shell: markup before the app script, then <script>PART1</script>,
                     then literal placeholders <!--APP_PART_2--> / <!--APP_PART_3-->,
                     then the rest of the markup. Deploy this file as `index`.
-  app2.html       - literally <script>PART2</script>. Deploy this file as `app2`.
-  app3.html       - literally <script>PART3</script>. Deploy this file as `app3`.
-  assembled.html  - placeholders replaced; QA-ONLY, NOT deployed. The inline
-                    script blocks joined with newlines are byte-identical to the
-                    old single-script build, i.e. behaviorally identical to what
-                    doGet() serves.
+  app2.html       - valid HTML document wrapping <script>PART2</script>.
+                    Deploy this file as `app2`.
+  app3.html       - valid HTML document wrapping <script>PART3</script>.
+                    Deploy this file as `app3`.
+  assembled.html  - placeholders replaced by the EXTRACTED script blocks;
+                    QA-ONLY, NOT deployed. Byte-identical to what doGet() serves.
 """
 import pathlib, re, subprocess, sys
 
@@ -72,6 +78,17 @@ for i, js in enumerate(part_js):
 print('Branding check OK (no old working name in any part)')
 
 # --- 3. syntax check each part standalone with node (via temp files) ---
+# --- 3b. part JS must not contain literal <script> / </script> tags: they would
+# break doGet()'s indexOf/lastIndexOf extraction AND the browser's HTML parsing.
+# (Use the '<scr'+'ipt>' trick like src/js/00_utils.js does.)
+for i, js in enumerate(part_js):
+    bad = [l for l in js.split('\n') if '<script' in l.lower() or '</script' in l.lower()]
+    if bad:
+        print('SCRIPT-TAG HAZARD in part %d: literal <script> or </script> inside part JS:' % (i + 1))
+        for l in bad[:5]:
+            print('   ', l.strip()[:120])
+        sys.exit(1)
+print('Script-tag check OK (no literal <script> / </script> inside any part JS)')
 import tempfile
 for i, js in enumerate(part_js):
     try:
@@ -91,17 +108,30 @@ print('JS syntax OK (%d files, %d bytes total)' % (len(files), _b(combined)))
 def script_block(js):
     return '<script>\n' + js + '\n</script>'
 
+def part_doc(js):
+    # app2.html / app3.html MUST be valid HTML documents: getContent() on a bare
+    # <script> fragment returns EMPTY from HtmlService (shipped a blank page).
+    return ('<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>\n'
+            + script_block(js) + '\n</body></html>')
+
+def extract_script(doc):
+    # mirrors Code.gs partScript() exactly: first <script> .. last </script>
+    i = doc.index('<script>')
+    j = doc.rindex('</script>')
+    assert i >= 0 and j > i, 'no script block in part document'
+    return doc[i:j + 9]
+
 tpl = (ROOT / 'src' / 'index.html').read_text()
 shell = tpl.replace('<!-- APP_JS -->',
                     script_block(part_js[0]) + '\n<!--APP_PART_2-->\n<!--APP_PART_3-->')
 if '<!--APP_PART_2-->' not in shell or '<!--APP_PART_3-->' not in shell:
     print('PLACEHOLDER CHECK FAILED: <!--APP_PART_2-->/<!--APP_PART_3--> missing from shell')
     sys.exit(1)
-app2_html = script_block(part_js[1])
-app3_html = script_block(part_js[2])
-# mirror doGet()'s split/join reassembly exactly
-assembled = app2_html.join(shell.split('<!--APP_PART_2-->'))
-assembled = app3_html.join(assembled.split('<!--APP_PART_3-->'))
+app2_html = part_doc(part_js[1])
+app3_html = part_doc(part_js[2])
+# mirror doGet()'s extraction + split/join reassembly exactly
+assembled = extract_script(app2_html).join(shell.split('<!--APP_PART_2-->'))
+assembled = extract_script(app3_html).join(assembled.split('<!--APP_PART_3-->'))
 if '<!--APP_PART_2-->' in assembled or '<!--APP_PART_3-->' in assembled:
     print('ASSEMBLY CHECK FAILED: placeholder survived replacement')
     sys.exit(1)
