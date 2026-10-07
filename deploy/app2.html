@@ -1,264 +1,6 @@
 <!DOCTYPE html><html><head><meta charset="utf-8"></head><body>
 <script>
 
-/* ===== 100_payroll.js ===== */
-/* 100_payroll.js — payroll runs, payslips (view/print), advances, final
-   settlement calculator, contractors + bills, pay components. */
-(function(){
-'use strict';
-
-App.nav.push({group:'MONEY', path:'#/payroll', label:I18N.t('c4.nav.payroll'), labelKey:'c4.nav.payroll', icon:'payroll', perm:'payroll'});
-
-App.routes['#/payroll'] = async (el, params)=>{
-  const cid=uid('pay');
-  const tab=(params&&params.tab)||'runs';
-  const canEdit=perm('payroll','edit');
-  el.innerHTML=pageHead('Payroll','Runs, payslips, advances and contractors',
-    `${canEdit?`<button class="${btnS}" id="${cid}-adv">Grant Advance</button><button class="${btnP}" id="${cid}-run">Run Payroll</button>`:''}`)+`
-  <div class="flex gap-2 mb-5 flex-wrap">
-    ${[['runs','Payroll Runs'],['salaries',I18N.t('t2.salaries')],['advances','Advances'],['settlement','Final Settlement'],['contractors','Contractors'],['components','Pay Components']].map(([k,l])=>
-      `<a href="#/payroll${k==='runs'?'':'?tab='+k}" class="px-4 py-2 rounded-xl text-sm font-semibold ${tab===k?'bg-teal-600 text-white shadow':'bg-white text-slate-500 border border-slate-200'}">${l}</a>`).join('')}
-  </div>
-  <div id="${cid}-body"></div>`;
-  const body=document.getElementById(cid+'-body');
-  const emps=await API.call('listEmployees').catch(()=>[]);
-
-  if(tab==='advances'){
-    const rows=await API.call('listAdvances');
-    body.innerHTML=tableHTML([
-      {label:'Employee', get:a=>`<span class="font-medium text-slate-700">${esc(a.employeeName)}</span>`},
-      {label:'Date', get:a=>fmtDate(a.date)},
-      {label:'Amount', num:1, get:a=>`<span class="tabular-nums">${fmt(a.amount)}</span>`},
-      {label:'Recovered', num:1, get:a=>`<span class="tabular-nums text-emerald-600">${fmt(a.recovered)}</span>`},
-      {label:'Balance', num:1, get:a=>`<span class="tabular-nums font-semibold">${fmt(a.balance)}</span>`},
-      {label:'Status', get:a=>a.status==='open'?badge('Open','amber'):badge('Closed','slate')},
-    ], rows, {empty:'No advances granted.'});
-  }
-  else if(tab==='settlement'){
-    body.innerHTML=`<div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.05)] p-6 max-w-2xl">
-      <h3 class="font-display font-bold text-slate-800 mb-1">Final settlement calculator</h3>
-      <p class="text-sm text-slate-400 mb-5">Pro-rata salary for the current month + approved overtime − open advance balances.</p>
-      ${field('Employee','employeeId',{type:'select',options:emps.filter(e=>e.active).map(e=>({value:e.id,label:e.name+' ('+e.code+')'}))})}
-      <button class="${btnP} mt-4" id="${cid}-calc">Calculate</button>
-      <div id="${cid}-result" class="mt-5"></div></div>`;
-    document.getElementById(cid+'-calc').onclick=async()=>{
-      const eid=formVal(body,'employeeId');
-      const r=await API.call('finalSettlement',eid);
-      document.getElementById(cid+'-result').innerHTML=`
-        <div class="rounded-2xl border border-slate-200/70 overflow-hidden">
-          <div class="bg-slate-50 px-5 py-3 border-b border-slate-200/60 font-semibold text-slate-700 text-sm">${esc(r.employee.name)} <span class="text-slate-400 font-normal">· ${esc(r.employee.code)}</span></div>
-          <div class="divide-y divide-slate-50 text-sm">
-            <div class="flex justify-between px-5 py-3"><span class="text-slate-500">Pro-rata salary (this month)</span><span class="tabular-nums font-medium">+ ${fmt(r.proRataSalary)}</span></div>
-            <div class="flex justify-between px-5 py-3"><span class="text-slate-500">Approved overtime pending</span><span class="tabular-nums font-medium">+ ${fmt(r.pendingOvertime)}</span></div>
-            <div class="flex justify-between px-5 py-3"><span class="text-slate-500">Open advance balance (${r.advances.length} advance${r.advances.length===1?'':'s'})</span><span class="tabular-nums font-medium text-red-600">− ${fmt(r.advanceDue)}</span></div>
-            <div class="flex justify-between px-5 py-3.5 bg-teal-50/60"><span class="font-bold text-slate-800">Net payable</span><span class="tabular-nums font-bold text-teal-700 text-base">${fmt(r.netPayable)}</span></div>
-          </div></div>`;
-    };
-  }
-  else if(tab==='contractors'){
-    const cts=await API.call('listContractors');
-    const bills=await API.call('listContractorBills');
-    body.innerHTML=`<div class="flex justify-end mb-3">${canEdit?`<button class="${btnS}" id="${cid}-addCt">+ Contractor</button>`:''}</div>`+
-    tableHTML([
-      {label:'Contractor', get:c=>`<div><div class="font-semibold text-slate-700">${esc(c.name)}</div><div class="text-xs text-slate-400">${esc(c.phone||'')}</div></div>`},
-      {label:'Rate', num:1, get:c=>`<span class="tabular-nums">${fmt(c.rate)}/day</span>`},
-      {label:'Billed total', num:1, get:c=>`<span class="tabular-nums font-semibold">${fmt(c.billed)}</span>`},
-      {label:'Status', get:c=>c.active?badge('Active','emerald'):badge('Inactive','slate')},
-      {label:'', get:c=>canEdit?`<div class="flex gap-1 justify-end"><button class="${btnS} !px-3 !py-1.5 !text-xs" data-bill="${c.id}">+ Bill</button><button class="${btnS} !px-3 !py-1.5 !text-xs" data-cedit="${c.id}">Edit</button></div>`:''},
-    ], cts, {empty:'No contractors yet.'})+
-    `<h3 class="font-display font-bold text-slate-800 mt-8 mb-3">Contractor bills</h3>`+
-    tableHTML([
-      {label:'Month', get:b=>`<span class="tabular-nums">${esc(b.month)}</span>`},
-      {label:'Contractor', get:b=>`<span class="font-medium text-slate-700">${esc(b.contractorName)}</span>`},
-      {label:'Note', get:b=>`<span class="text-xs text-slate-500">${esc(b.note||'—')}</span>`},
-      {label:'Amount', num:1, get:b=>`<span class="tabular-nums font-semibold">${fmt(b.amount)}</span>`},
-      {label:'Status', get:b=>b.status==='pending'?badge('Pending','amber'):b.status==='approved'?badge('Approved','emerald'):badge('Paid','teal')},
-      {label:'', get:b=>canEdit&&b.status==='pending'?`<div class="flex gap-1 justify-end"><button class="${btnS} !px-3 !py-1.5 !text-xs !text-emerald-700" data-bok="${b.id}">Approve</button><button class="${btnS} !px-3 !py-1.5 !text-xs" data-bpaid="${b.id}">Mark paid</button></div>`:''},
-    ], bills, {empty:'No bills yet.'});
-    const addCt=document.getElementById(cid+'-addCt');
-    if(addCt) addCt.onclick=()=>contractorEditor(null);
-    body.querySelectorAll('[data-cedit]').forEach(b=>b.onclick=()=>contractorEditor(cts.find(c=>c.id===b.dataset.cedit)));
-    body.querySelectorAll('[data-bill]').forEach(b=>b.onclick=()=>{
-      const c=cts.find(x=>x.id===b.dataset.bill);
-      const m=modal('New bill — '+c.name,`
-        ${field('Month','month',{type:'month',value:monthISO(),req:true})}
-        <div class="grid grid-cols-2 gap-4 mt-4">${field('Amount (Rs)','amount',{type:'number',min:0,req:true})}</div>
-        <div class="mt-4">${field('Note','note',{type:'textarea',ph:'Work description'})}</div>
-        <div class="flex justify-end gap-2 mt-6"><button class="${btnS}" id="bCancel">Cancel</button><button class="${btnP}" id="bSave">Save bill</button></div>`);
-      m.el.querySelector('#bCancel').onclick=()=>m.close();
-      m.el.querySelector('#bSave').onclick=async()=>{
-        await API.call('saveContractorBill',{contractorId:c.id,month:formVal(m.el,'month'),amount:formNum(m.el,'amount'),note:formVal(m.el,'note')});
-        m.close(); toast('Bill saved','success'); App.route();
-      };
-    });
-    body.querySelectorAll('[data-bok]').forEach(b=>b.onclick=async()=>{ await API.call('decideContractorBill',b.dataset.bok,'approved'); toast('Bill approved','success'); App.route(); });
-    body.querySelectorAll('[data-bpaid]').forEach(b=>b.onclick=async()=>{ await API.call('decideContractorBill',b.dataset.bpaid,'paid'); toast('Bill marked paid','success'); App.route(); });
-  }
-  else if(tab==='components'){
-    const rows=await API.call('listPayComponents');
-    body.innerHTML=(canEdit?`<div class="flex justify-end mb-3"><button class="${btnS}" id="${cid}-addPc">+ Component</button></div>`:'')+tableHTML([
-      {label:'Component', get:c=>`<span class="font-medium text-slate-700">${esc(c.name)}</span>`},
-      {label:'Kind', get:c=>c.kind==='allowance'?badge('Allowance','emerald'):badge('Deduction','red')},
-      {label:'Amount', num:1, get:c=>`<span class="tabular-nums">${fmt(c.amount)}</span>`},
-      {label:'Approved', get:c=>c.approved?badge('Yes','teal'):badge('No','slate')},
-      {label:'', get:c=>canEdit?`<div class="flex gap-1 justify-end"><button class="${btnS} !px-3 !py-1.5 !text-xs" data-pcedit="${c.id}">Edit</button><button class="${btnS} !px-3 !py-1.5 !text-xs !text-red-600" data-pcdel="${c.id}">Delete</button></div>`:''},
-    ], rows, {empty:'No pay components.'});
-    const addPc=document.getElementById(cid+'-addPc');
-    if(addPc) addPc.onclick=()=>componentEditor(null);
-    body.querySelectorAll('[data-pcedit]').forEach(b=>b.onclick=()=>componentEditor(rows.find(c=>c.id===b.dataset.pcedit)));
-    body.querySelectorAll('[data-pcdel]').forEach(b=>b.onclick=async()=>{
-      if(!await confirmDlg('Delete component?','It will no longer apply to future payroll runs.','Delete')) return;
-      await API.call('deletePayComponent',b.dataset.pcdel); toast('Deleted','success'); App.route();
-    });
-  }
-  else if(tab==='salaries'){
-    /* Track 2: auto salary from attendance (src/js/155_salary.js) */
-    await SalaryUI.renderSalariesTab(body, { emps, canEdit });
-  }
-  else{
-    /* runs */
-    const runs=await API.call('listPayrollRuns');
-    body.innerHTML=tableHTML([
-      {label:'Month', get:r=>`<span class="font-semibold tabular-nums">${esc(r.month)}</span>`},
-      {label:'Created', get:r=>`<span class="text-xs text-slate-500">${esc(r.createdAt)} · ${esc(r.createdBy)}</span>`},
-      {label:'Payslips', num:1, get:r=>fmtNum(r.slipCount)},
-      {label:'Total net', num:1, get:r=>`<span class="tabular-nums font-semibold">${fmt(r.totalNet)}</span>`},
-      {label:'Status', get:r=>badge(r.status==='finalized'?'Finalized':'Draft', r.status==='finalized'?'teal':'slate')},
-      {label:'', get:r=>`<div class="flex gap-1 justify-end"><button class="${btnS} !px-3 !py-1.5 !text-xs" data-view="${r.id}">View payslips</button></div>`},
-    ], runs, {empty:'No payroll runs yet — run your first payroll.'});
-    body.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>viewRun(b.dataset.view));
-  }
-
-  async function viewRun(runId){
-    const runs=await API.call('listPayrollRuns');
-    const run=runs.find(r=>r.id===runId);
-    const m=modal('Payroll — '+run.month,`<div id="psBody"></div>`,{wide:true});
-    const pb=m.el.querySelector('#psBody');
-    /* listPayslips returns flat enriched slips for the run (id, employeeName/Code, salary, allowances, deductions, advanceRecovery, net, paid) */
-    const slips=await API.call('listPayslips',runId);
-    pb.innerHTML=tableHTML([
-      {label:'Employee', get:s=>`<div><div class="font-medium text-slate-700">${esc(s.employeeName)}</div><div class="text-xs text-slate-400">${esc(s.employeeCode)}</div></div>`},
-      {label:'Salary', num:1, get:s=>`<span class="tabular-nums">${fmt(s.salary)}</span>`},
-      {label:'Allow.', num:1, get:s=>`<span class="tabular-nums text-emerald-600">+${fmtNum(s.allowances)}</span>`},
-      {label:'Deduct.', num:1, get:s=>`<span class="tabular-nums text-red-500">−${fmtNum(s.deductions)}</span>`},
-      {label:'Advance', num:1, get:s=>`<span class="tabular-nums text-amber-600">−${fmtNum(s.advanceRecovery)}</span>`},
-      {label:'Net', num:1, get:s=>`<span class="tabular-nums font-bold">${fmt(s.net)}</span>`},
-      {label:'', get:s=>`<div class="flex gap-1 justify-end">
-        <button class="${btnS} !px-3 !py-1.5 !text-xs" data-ps="${s.id}">Payslip</button>
-        ${!s.paid&&canEdit?`<button class="${btnS} !px-3 !py-1.5 !text-xs !text-emerald-700" data-paid="${s.id}">Mark paid</button>`:s.paid?badge('Paid','teal'):''}</div>`},
-    ], slips, {empty:'No payslips in this run.'});
-    pb.querySelectorAll('[data-ps]').forEach(b=>b.onclick=async()=>{
-      const r=await API.call('getPayslip',b.dataset.ps);
-      payslipModal({employeeName:r.employee.name, employeeCode:r.employee.code, month:r.run.month,
-        designation:r.employee.designation, department:r.employee.departmentName||r.employee.department,
-        salary:r.payslip.salary, allowances:r.payslip.allowances, deductions:r.payslip.deductions,
-        advanceRecovery:r.payslip.advanceRecovery, net:r.payslip.net, paid:r.payslip.paid});
-    });
-    pb.querySelectorAll('[data-paid]').forEach(b=>b.onclick=async()=>{
-      await API.call('markPayslipPaid',b.dataset.paid); toast('Marked paid','success'); m.close(); App.route();
-    });
-  }
-
-  function payslipModal(s){
-    const m=modal('Payslip — '+s.employeeName,`
-      <div id="psPrint">
-        <div class="text-center mb-5">
-          <div class="font-display font-bold text-lg text-slate-800">Attendance Management System</div>
-          <div class="text-xs text-slate-400">Payslip for ${esc(s.month)} · ${esc(s.employeeName)} (${esc(s.employeeCode)})</div>
-          <div class="text-xs text-slate-400">${esc(s.designation||'')} · ${esc(s.department||'')}</div>
-        </div>
-        <table class="w-full text-sm"><tbody class="divide-y divide-slate-100">
-          <tr><td class="py-2 text-slate-500">Basic salary</td><td class="py-2 text-right tabular-nums">${fmt(s.salary)}</td></tr>
-          <tr><td class="py-2 text-slate-500">Allowances</td><td class="py-2 text-right tabular-nums text-emerald-600">+ ${fmt(s.allowances)}</td></tr>
-          <tr><td class="py-2 text-slate-500">Deductions</td><td class="py-2 text-right tabular-nums text-red-500">− ${fmt(s.deductions)}</td></tr>
-          <tr><td class="py-2 text-slate-500">Advance recovery</td><td class="py-2 text-right tabular-nums text-amber-600">− ${fmt(s.advanceRecovery)}</td></tr>
-          <tr><td class="py-2.5 font-bold text-slate-800">Net pay</td><td class="py-2.5 text-right tabular-nums font-bold text-teal-700 text-base">${fmt(s.net)}</td></tr>
-        </tbody></table>
-        <div class="mt-3 text-center">${s.paid?badge('Paid','teal'):badge('Unpaid','amber')}</div>
-      </div>
-      <div class="flex justify-end gap-2 mt-6"><button class="${btnS}" id="pClose">Close</button><button class="${btnP}" id="pPrint">Print</button></div>`);
-    m.el.querySelector('#pClose').onclick=()=>m.close();
-    m.el.querySelector('#pPrint').onclick=()=>printHTML(m.el.querySelector('#psPrint').innerHTML,'Payslip '+s.employeeName+' '+s.month);
-  }
-
-  function contractorEditor(c){
-    const isNew=!c; c=c||{name:'',company:'',phone:'',rate:0,active:true};
-    const m=modal(isNew?'Add Contractor':'Edit Contractor',`
-      <div class="grid grid-cols-2 gap-4">
-        <div class="col-span-2">${field('Contractor / firm name','name',{value:c.name,req:true})}</div>
-        ${field('Company','company',{value:c.company||''})}
-        ${field('Phone','phone',{value:c.phone||''})}
-        ${field('Daily rate (Rs)','rate',{value:c.rate,type:'number',min:0})}
-        <div class="flex items-end pb-2.5">${field('Active','active',{type:'checkbox',value:c.active})}</div>
-      </div>
-      <div class="flex justify-end gap-2 mt-6"><button class="${btnS}" id="cCancel">Cancel</button><button class="${btnP}" id="cSave">Save</button></div>`);
-    m.el.querySelector('#cCancel').onclick=()=>m.close();
-    m.el.querySelector('#cSave').onclick=async()=>{
-      const d=collectForm(m.el); if(!d.name){toast('Name required','warn');return;}
-      await API.call('saveContractor',{...(isNew?{}:{id:c.id}),...d}); m.close(); toast('Contractor saved','success'); App.route();
-    };
-  }
-
-  function componentEditor(c){
-    const isNew=!c; c=c||{name:'',kind:'allowance',amount:0,appliesTo:'all',approved:true};
-    const m=modal(isNew?'Add Pay Component':'Edit Pay Component',`
-      <div class="grid grid-cols-2 gap-4">
-        <div class="col-span-2">${field('Component name','name',{value:c.name,req:true})}</div>
-        ${field('Kind','kind',{type:'select',value:c.kind,options:[{value:'allowance',label:'Allowance'},{value:'deduction',label:'Deduction'}]})}
-        ${field('Amount (Rs)','amount',{value:c.amount,type:'number',min:0})}
-        <div class="col-span-2 flex items-end pb-2.5">${field('Approved (applies to payroll runs)','approved',{type:'checkbox',value:c.approved})}</div>
-      </div>
-      <div class="flex justify-end gap-2 mt-6"><button class="${btnS}" id="cCancel">Cancel</button><button class="${btnP}" id="cSave">Save</button></div>`);
-    m.el.querySelector('#cCancel').onclick=()=>m.close();
-    m.el.querySelector('#cSave').onclick=async()=>{
-      const d=collectForm(m.el); if(!d.name){toast('Name required','warn');return;}
-      await API.call('savePayComponent',{...(isNew?{}:{id:c.id}),...d}); m.close(); toast('Component saved','success'); App.route();
-    };
-  }
-
-  /* header actions */
-  const runB=document.getElementById(cid+'-run');
-  if(runB) runB.onclick=()=>{
-    const m=modal('Run Payroll',`
-      ${field('Payroll month','month',{type:'month',value:monthISO(),req:true})}
-      <div class="max-h-64 overflow-y-auto border border-slate-200/70 rounded-2xl mt-4 mb-4 divide-y divide-slate-50">
-        <label class="flex items-center gap-3 px-4 py-2.5 bg-slate-50 font-semibold text-sm text-slate-600 cursor-pointer">
-          <input type="checkbox" id="allEmp" checked class="w-4 h-4 rounded accent-teal-600"> Select all</label>
-        ${emps.filter(e=>e.active).map(e=>`<label class="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 cursor-pointer">
-          <input type="checkbox" name="pemp" value="${e.id}" checked class="w-4 h-4 rounded accent-teal-600">
-          <span class="text-sm font-medium text-slate-700">${esc(e.name)}</span><span class="text-xs text-slate-400 ml-auto tabular-nums">${fmt(e.salary)}</span></label>`).join('')}
-      </div>
-      <div class="flex justify-end gap-2"><button class="${btnS}" id="pCancel">Cancel</button><button class="${btnP}" id="pGo">Run payroll</button></div>`);
-    m.el.querySelector('#pCancel').onclick=()=>m.close();
-    m.el.querySelector('#allEmp').onchange=e=>m.el.querySelectorAll('[name="pemp"]').forEach(x=>x.checked=e.target.checked);
-    m.el.querySelector('#pGo').onclick=async()=>{
-      const ids=[...m.el.querySelectorAll('[name="pemp"]:checked')].map(x=>x.value);
-      if(!ids.length){ toast('Select at least one employee','warn'); return; }
-      const r=await API.call('runPayroll',formVal(m.el,'month'),ids);
-      m.close(); toast('Payroll run created for '+r.month,'success'); App.route();
-    };
-  };
-  const advB=document.getElementById(cid+'-adv');
-  if(advB) advB.onclick=()=>{
-    const m=modal('Grant Advance',`
-      <div class="grid grid-cols-1 gap-4">
-        ${field('Employee','employeeId',{type:'select',options:emps.filter(e=>e.active).map(e=>({value:e.id,label:e.name}))})}
-        ${field('Amount (Rs)','amount',{type:'number',min:1,req:true})}
-        ${field('Installments','installments',{type:'number',value:3,min:1})}
-      </div>
-      <div class="flex justify-end gap-2 mt-6"><button class="${btnS}" id="aCancel">Cancel</button><button class="${btnP}" id="aGo">Grant</button></div>`);
-    m.el.querySelector('#aCancel').onclick=()=>m.close();
-    m.el.querySelector('#aGo').onclick=async()=>{
-      const d=collectForm(m.el);
-      if(!d.amount){toast('Amount required','warn');return;}
-      await API.call('grantAdvance',d.employeeId,d.amount,d.installments);
-      m.close(); toast('Advance granted','success'); location.hash='#/payroll?tab=advances'; App.route();
-    };
-  };
-};
-})();
-
-
 /* ===== 10_auth.js ===== */
 /* 10_auth.js — split-screen login: Company code + username + password. */
 (function(){
@@ -768,34 +510,54 @@ App.routes['#/settings'] = async (el)=>{
   const ss=document.getElementById(cid+'-saveSmtp');
   if(ss) ss.onclick=async()=>{ await API.call('saveSettings',collectForm(smtp)); toast('SMTP settings saved','success'); };
 
-  /* ZKTeco device settings */
+  /* ZKTeco device settings — premium card */
   const zk=document.getElementById(cid+'-zkt');
   if(zk){
     let z={};
     try{ z=await API.call('getZktSettings'); }catch(e){ z={}; }
+    const zOn = z.zkt_enabled==='1'||z.zkt_enabled===1;
+    const zCfg = !!(z.zkt_device_id && z.zkt_api_key);
+    const zReady = zOn && zCfg && !!z.zkt_ip;
+    const stTx = zReady?'Ready':zCfg?'Incomplete':'Not set up';
+    const stC = zReady?'bg-emerald-400/25':zCfg?'bg-amber-400/25':'bg-white/15';
+    const dtC = zReady?'bg-emerald-300':zCfg?'bg-amber-300':'bg-white/70';
     zk.innerHTML=`
-      <div class="rounded-xl border border-slate-200/70 p-4 mb-4">
-        <div class="flex items-center gap-2 mb-3">
-          <span class="text-base">🔐</span><span class="font-semibold text-slate-700 text-sm">Device connection</span>
-          <label class="ml-auto inline-flex items-center gap-2 text-xs text-slate-500 cursor-pointer">
-            <input type="checkbox" name="zkt_enabled" ${z.zkt_enabled==='1'||z.zkt_enabled===1?'checked':''} ${canEdit?'':'disabled'} class="w-4 h-4 rounded accent-teal-600"> Enabled
-          </label>
+      <div class="rounded-2xl overflow-hidden border border-slate-200/70 shadow-sm mb-4">
+        <div class="px-5 py-4 flex items-center gap-3 bg-gradient-to-br from-teal-700 via-teal-600 to-teal-500">
+          <div class="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center text-white text-xl shrink-0">◉</div>
+          <div class="min-w-0"><div class="text-white font-bold text-[15px]">Biometric device</div><div class="text-teal-100/90 text-xs">ZKTeco fingerprint / face terminal</div></div>
+          <span class="ml-auto inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-full text-white ring-1 ring-white/40 ${stC}"><span class="w-1.5 h-1.5 rounded-full ${dtC}"></span>${stTx}</span>
         </div>
-        <div class="grid grid-cols-2 gap-4">
-          <div>${field('Device ID','zkt_device_id',{value:z.zkt_device_id||'',ph:'e.g. ZKT-Office-01'})}</div>
-          <div>${field('API key','zkt_api_key',{type:'password',value:z.zkt_api_key||'',ph:'secret key for the device'})}</div>
-          <div>${field('Device IP (port-forwarded)','zkt_ip',{value:z.zkt_ip||'',ph:'e.g. 203.0.113.45'})}</div>
-          <div>${field('Device port','zkt_port',{type:'number',value:z.zkt_port||'4370',ph:'4370'})}</div>
+        <div class="p-5 bg-white">
+          <div class="flex items-center justify-between mb-4">
+            <div class="text-sm font-semibold text-slate-700">Device connection</div>
+            <label class="relative inline-flex cursor-pointer items-center ${canEdit?'':'opacity-60 pointer-events-none'}">
+              <input type="checkbox" name="zkt_enabled" ${zOn?'checked':''} class="sr-only peer">
+              <div class="w-9 h-5 bg-slate-200 peer-checked:bg-teal-600 rounded-full transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:w-4 after:h-4 after:bg-white after:rounded-full after:transition-transform peer-checked:after:translate-x-4 after:shadow"></div>
+              <span class="ml-2 text-xs font-medium text-slate-500">Enabled</span>
+            </label>
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div>${field('Device ID','zkt_device_id',{value:z.zkt_device_id||'',ph:'e.g. ZKT-Office-01'})}</div>
+            <div>${field('API key','zkt_api_key',{type:'password',value:z.zkt_api_key||'',ph:'Secret key'})}</div>
+            <div>${field('Device IP (port-forwarded)','zkt_ip',{value:z.zkt_ip||'',ph:'e.g. 203.0.113.45'})}</div>
+            <div>${field('Device port','zkt_port',{type:'number',value:z.zkt_port||'4370'})}</div>
+          </div>
+          <div class="mt-4 rounded-xl bg-slate-50 border border-slate-200/70 p-4">
+            <div class="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">Setup</div>
+            ${['Forward TCP port 4370 on your router to the ZKTeco device.','Enter the public IP + port above, with a Device ID and API key.','Save — punches sync automatically. Employee codes must match.']
+              .map((t,i)=>`<div class="flex items-start gap-2 mb-1.5 last:mb-0"><span class="w-5 h-5 rounded-full bg-teal-600 text-white text-[10px] font-bold flex items-center justify-center shrink-0">${i+1}</span><span class="text-xs text-slate-600">${t}</span></div>`).join('')}
+          </div>
         </div>
-        <p class="text-[11px] text-slate-400 mt-2">Port-forward your ZKTeco device (TCP port 4370) on your router so it is reachable online, then enter its public IP and port here. A connector on the server polls the device and pushes punches automatically. Employee codes on the device must match employee codes here.</p>
       </div>
-      <div class="rounded-xl bg-slate-50 border border-slate-200/70 p-4 mb-4">
-        <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Webhook URL (POST JSON here)</div>
-        <code class="block text-[11px] text-slate-600 break-all bg-white border border-slate-200 rounded-lg p-2.5">${esc(z.webhookUrl||'')}</code>
-        <div class="text-[11px] text-slate-400 mt-2">Payload: <code>{"zkt":1,"deviceId":"…","apiKey":"…","punches":[{"empCode":"E001","time":"2026-10-07 09:00:00","type":"in"}]}</code></div>
-        ${z.zkt_last_sync?`<div class="text-[11px] text-slate-400 mt-1">Last sync: ${esc(z.zkt_last_sync)}</div>`:''}
+      <div class="rounded-2xl border border-slate-200/70 bg-white shadow-sm p-5 mb-4">
+        <div class="flex items-center justify-between mb-2"><div class="text-xs font-bold uppercase tracking-wider text-slate-400">Webhook URL</div><button class="text-[11px] font-semibold text-teal-600" id="${cid}-copyWh">Copy</button></div>
+        <code class="block text-[11px] text-slate-600 break-all bg-slate-50 border border-slate-200 rounded-xl p-3 font-mono">${esc(z.webhookUrl||'')}</code>
+        ${z.zkt_last_sync?`<div class="mt-3 inline-flex items-center gap-1.5 text-[11px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200/60 rounded-full px-2.5 py-1">✓ Last sync: ${esc(z.zkt_last_sync)}</div>`:`<div class="mt-3 inline-flex items-center gap-1.5 text-[11px] text-slate-400 bg-slate-100 rounded-full px-2.5 py-1">No sync yet</div>`}
       </div>
       ${canEdit?`<button class="${btnP}" id="${cid}-saveZkt">Save ZKTeco settings</button>`:''}`;
+    const cp=document.getElementById(cid+'-copyWh');
+    if(cp) cp.onclick=()=>{ try{ navigator.clipboard.writeText(z.webhookUrl||''); toast('Webhook URL copied','success'); }catch(e){ toast('Copy failed','error'); } };
     const sz=document.getElementById(cid+'-saveZkt');
     if(sz) sz.onclick=async()=>{
       const d=collectForm(zk);
@@ -1760,6 +1522,639 @@ window.SalaryUI = {
     m.el.querySelector('#t2pPrint').onclick = () =>
       printHTML(m.el.querySelector('#t2slipPrint').outerHTML, t2t('payslip') + ' ' + (d.employee.name || '') + ' ' + (d.run.month || ''));
   }
+};
+})();
+
+
+/* ===== 160_alerts.js ===== */
+/* 160_alerts.js — TRACK 3 frontend: Notifications card for the Settings page,
+   message-log viewer with resend, and a one-time API.call wrapper that fires
+   runAlertChecks after punch/devicePunch and alertLeaveDecision after
+   decideLeave, so the punch/leave flows need no edits. */
+(function(){
+'use strict';
+
+/* I18N framework ships with another track; provide a minimal shim so this
+   module never crashes if it loads first. Guarded so we never clobber it. */
+if(!window.I18N){
+  window.I18N = {
+    dict: { en: {}, ur: {} },
+    lang: 'en',
+    t: function(k){ var d = window.I18N.dict || {}; return (d[window.I18N.lang] && d[window.I18N.lang][k]) || (d.en && d.en[k]) || k; }
+  };
+}
+Object.assign(I18N.dict.en, {
+  't3.notifications': 'Notifications (WhatsApp / SMS)',
+  't3.notifSub': 'Automatic WhatsApp or SMS alerts for attendance events. WhatsApp is used when configured, otherwise the SMS webhook.',
+  't3.whatsapp': 'WhatsApp (Cloud API)',
+  't3.waEnabled': 'Enable WhatsApp alerts',
+  't3.waToken': 'Access token',
+  't3.waPhoneId': 'Phone number ID',
+  't3.waTemplate': 'Template name (optional)',
+  't3.waTemplateHint': 'Leave empty to send plain text. If set, the approved template is sent instead of text.',
+  't3.sms': 'SMS (webhook)',
+  't3.smsEnabled': 'Enable SMS alerts',
+  't3.smsUrl': 'Webhook URL',
+  't3.smsUrlHint': 'Receives POST JSON { to, message }. Only used when WhatsApp is not configured.',
+  't3.events': 'Alert events',
+  't3.evLate': 'Late arrival',
+  't3.evAbsent': 'Absent (no check-in)',
+  't3.evLeave': 'Leave approved / rejected',
+  't3.evZone': 'Out-of-zone punch',
+  't3.grace': 'Absence grace (minutes)',
+  't3.graceHint': 'An employee counts as absent only after this many minutes past their shift start.',
+  't3.testTo': 'Test number',
+  't3.testWa': 'Test WhatsApp',
+  't3.testSms': 'Test SMS',
+  't3.save': 'Save notification settings',
+  't3.saved': 'Notification settings saved',
+  't3.testSent': 'Test alert sent — check the message log below',
+  't3.testNeedNo': 'Enter a test phone number first',
+  't3.pendingNote': 'Until credentials are saved, alerts are logged as “pending-config” and nothing is sent.',
+  't3.logTitle': 'Message log',
+  't3.logSub': 'Every alert attempt is recorded here. Resend retries an entry with the current settings.',
+  't3.refresh': 'Refresh',
+  't3.cTime': 'Time',
+  't3.cChannel': 'Channel',
+  't3.cTo': 'To',
+  't3.cEvent': 'Event',
+  't3.cStatus': 'Status',
+  't3.cError': 'Error',
+  't3.resend': 'Resend',
+  't3.resent': 'Alert resent',
+  't3.noLogs': 'No alerts logged yet.',
+  't3.stSent': 'sent',
+  't3.stFailed': 'failed',
+  't3.stPending': 'pending-config'
+});
+Object.assign(I18N.dict.ur, {
+  't3.notifications': 'اطلاعات (واٹس ایپ / ایس ایم ایس)',
+  't3.notifSub': 'حاضری کے واقعات پر خودکار واٹس ایپ یا ایس ایم ایس الرٹس۔ ترتیب ہونے پر واٹس ایپ استعمال ہوتا ہے، ورنہ ایس ایم ایس ویب ہک۔',
+  't3.whatsapp': 'واٹس ایپ (کلاؤڈ API)',
+  't3.waEnabled': 'واٹس ایپ الرٹس فعال کریں',
+  't3.waToken': 'ایکسیس ٹوکن',
+  't3.waPhoneId': 'فون نمبر ID',
+  't3.waTemplate': 'ٹیمپلیٹ کا نام (اختیاری)',
+  't3.waTemplateHint': 'سادہ متن بھیجنے کے لیے خالی چھوڑیں۔ درج ہو تو منظور شدہ ٹیمپلیٹ بھیجا جائے گا۔',
+  't3.sms': 'ایس ایم ایس (ویب ہک)',
+  't3.smsEnabled': 'ایس ایم ایس الرٹس فعال کریں',
+  't3.smsUrl': 'ویب ہک URL',
+  't3.smsUrlHint': 'POST JSON { to, message } وصول کرتا ہے۔ صرف اس صورت میں استعمال ہوتا ہے جب واٹس ایپ ترتیب نہ ہو۔',
+  't3.events': 'الرٹ کے واقعات',
+  't3.evLate': 'دیر سے آمد',
+  't3.evAbsent': 'غیر حاضر (چیک اِن نہیں)',
+  't3.evLeave': 'چھٹی منظور / مسترد',
+  't3.evZone': 'زون سے باہر پنچ',
+  't3.grace': 'غیر حاضری کی مہلت (منٹ)',
+  't3.graceHint': 'ملازم شفٹ شروع ہونے کے اتنے منٹ بعد ہی غیر حاضر شمار ہوگا۔',
+  't3.testTo': 'ٹیسٹ نمبر',
+  't3.testWa': 'واٹس ایپ ٹیسٹ',
+  't3.testSms': 'ایس ایم ایس ٹیسٹ',
+  't3.save': 'اطلاعات کی ترتیبات محفوظ کریں',
+  't3.saved': 'اطلاعات کی ترتیبات محفوظ ہو گئیں',
+  't3.testSent': 'ٹیسٹ الرٹ بھیج دیا گیا — نیچے پیغامات کی فہرست دیکھیں',
+  't3.testNeedNo': 'پہلے ٹیسٹ فون نمبر درج کریں',
+  't3.pendingNote': 'اسناد محفوظ ہونے تک الرٹس “pending-config” کے طور پر لاگ ہوں گے اور کچھ نہیں بھیجا جائے گا۔',
+  't3.logTitle': 'پیغامات کی فہرست',
+  't3.logSub': 'ہر الرٹ کی کوشش یہاں درج ہوتی ہے۔ دوبارہ بھیجنا موجودہ ترتیبات سے کوشش دہراتا ہے۔',
+  't3.refresh': 'تازہ کریں',
+  't3.cTime': 'وقت',
+  't3.cChannel': 'چینل',
+  't3.cTo': 'وصول کنندہ',
+  't3.cEvent': 'واقعہ',
+  't3.cStatus': 'حیثیت',
+  't3.cError': 'خرابی',
+  't3.resend': 'دوبارہ بھیجیں',
+  't3.resent': 'الرٹ دوبارہ بھیج دیا گیا',
+  't3.noLogs': 'ابھی کوئی الرٹ لاگ نہیں ہوا۔',
+  't3.stSent': 'بھیجا گیا',
+  't3.stFailed': 'ناکام',
+  't3.stPending': 'pending-config'
+});
+
+const T = k => I18N.t(k);
+/* settings values arrive as strings/booleans; treat '1' like true */
+function on(v){ return v===true || v===1 || v==='1' || v==='true' || v==='TRUE'; }
+function statusBadge(st){
+  if(st==='sent') return badge(T('t3.stSent'),'emerald');
+  if(st==='failed') return badge(T('t3.stFailed'),'red');
+  return badge(T('t3.stPending'),'amber');
+}
+const EV_LABEL = { late:'t3.evLate', absent:'t3.evAbsent', leave_approved:'t3.evLeave',
+  leave_rejected:'t3.evLeave', out_of_zone:'t3.evZone', test:'t3.testWa' };
+function evLabel(ev){
+  const k = EV_LABEL[ev];
+  if(!k) return ev;
+  const t = T(k);
+  return (t === k) ? ev : t;
+}
+
+const Alerts = {
+  on,
+
+  /* Notifications card body for the Settings page. Field names match the
+     settings keys, so collectForm() + saveSettings() round-trip directly. */
+  notifHTML(s, canEdit){
+    s = s || {};
+    const dis = canEdit ? '' : 'disabled';
+    return `
+    <div class="rounded-xl border border-slate-200/70 p-4 mb-4">
+      <div class="flex items-center gap-2 mb-3">
+        <span class="text-base">💬</span><span class="font-semibold text-slate-700 text-sm">${T('t3.whatsapp')}</span>
+        <label class="ml-auto inline-flex items-center gap-2 text-xs text-slate-500 cursor-pointer">
+          <input type="checkbox" name="wa_enabled" ${on(s.wa_enabled)?'checked':''} ${dis} class="w-4 h-4 rounded accent-teal-600"> ${T('t3.waEnabled')}
+        </label>
+      </div>
+      <div class="grid grid-cols-2 gap-4">
+        <div class="col-span-2">${field(T('t3.waToken'),'wa_token',{type:'password',value:s.wa_token||'',cls:dis})}</div>
+        ${field(T('t3.waPhoneId'),'wa_phone_number_id',{value:s.wa_phone_number_id||'',ph:'e.g. 123456789012345'})}
+        ${field(T('t3.waTemplate'),'wa_template_name',{value:s.wa_template_name||'',ph:'optional'})}
+      </div>
+      <p class="text-[11px] text-slate-400 mt-2">${T('t3.waTemplateHint')}</p>
+    </div>
+    <div class="rounded-xl border border-slate-200/70 p-4 mb-4">
+      <div class="flex items-center gap-2 mb-3">
+        <span class="text-base">📩</span><span class="font-semibold text-slate-700 text-sm">${T('t3.sms')}</span>
+        <label class="ml-auto inline-flex items-center gap-2 text-xs text-slate-500 cursor-pointer">
+          <input type="checkbox" name="sms_enabled" ${on(s.sms_enabled)?'checked':''} ${dis} class="w-4 h-4 rounded accent-teal-600"> ${T('t3.smsEnabled')}
+        </label>
+      </div>
+      ${field(T('t3.smsUrl'),'sms_webhook_url',{value:s.sms_webhook_url||'',ph:'webhook.example.com/sms-hook'})}
+      <p class="text-[11px] text-slate-400 mt-2">${T('t3.smsUrlHint')}</p>
+    </div>
+    <div class="rounded-xl border border-slate-200/70 p-4 mb-4">
+      <div class="flex items-center gap-2 mb-3">
+        <span class="text-base">💬</span><span class="font-semibold text-slate-700 text-sm">Slack</span>
+        <label class="ml-auto inline-flex items-center gap-2 text-xs text-slate-500 cursor-pointer">
+          <input type="checkbox" name="slack_enabled" ${on(s.slack_enabled)?'checked':''} ${dis} class="w-4 h-4 rounded accent-teal-600"> Enabled
+        </label>
+      </div>
+      ${field('Incoming webhook URL','slack_webhook_url',{value:s.slack_webhook_url||'',ph:'hooks.slack.com/services/…',cls:dis})}
+      <p class="text-[11px] text-slate-400 mt-2">Create an incoming webhook in your Slack workspace (Apps → Incoming Webhooks) and paste the URL here. Check-in and check-out alerts are posted to that channel.</p>
+    </div>
+    <div class="rounded-xl border border-slate-200/70 p-4 mb-4">
+      <div class="font-semibold text-slate-700 text-sm mb-3">${T('t3.events')}</div>
+      <div class="grid grid-cols-2 gap-2.5">
+        ${[['alert_late','t3.evLate'],['alert_absent','t3.evAbsent'],['alert_leave_decision','t3.evLeave'],['alert_out_of_zone','t3.evZone'],['alert_checkin','Check-in (Slack)'],['alert_checkout','Check-out (Slack)']]
+          .map(([k,l])=>`<label class="flex items-center gap-2 text-sm text-slate-600 cursor-pointer"><input type="checkbox" name="${k}" ${on(s[k])?'checked':''} ${dis} class="w-4 h-4 rounded accent-teal-600"> ${l.startsWith('t3.')?T(l):l}</label>`).join('')}
+      </div>
+      <div class="mt-4 max-w-[220px]">${field(T('t3.grace'),'absence_grace_minutes',{type:'number',min:0,value:s.absence_grace_minutes||60})}</div>
+      <p class="text-[11px] text-slate-400 mt-1">${T('t3.graceHint')}</p>
+    </div>
+    ${canEdit?`
+    <div class="rounded-xl bg-slate-50 border border-slate-200/70 p-4 mb-4">
+      <div class="flex flex-wrap items-end gap-3">
+        <div class="flex-1 min-w-[180px]">${field(T('t3.testTo'),'t3_test_to',{ph:'03XXXXXXXXX'})}</div>
+        <button class="${btnS} !text-xs" data-t3test="whatsapp">${T('t3.testWa')}</button>
+        <button class="${btnS} !text-xs" data-t3test="sms">${T('t3.testSms')}</button>
+        <button class="${btnS} !text-xs" data-t3test="slack">Test Slack</button>
+      </div>
+      <p class="text-[11px] text-slate-400 mt-2">${T('t3.pendingNote')}</p>
+    </div>
+    <button class="${btnP}" data-t3save>${T('t3.save')}</button>`:''}`;
+  },
+
+  initNotif(rootId, canEdit){
+    const root = document.getElementById(rootId);
+    if(!root) return;
+    const sv = root.querySelector('[data-t3save]');
+    if(sv) sv.onclick = async ()=>{
+      const d = collectForm(root);
+      delete d.t3_test_to;
+      await API.call('saveSettings', d);
+      toast(T('t3.saved'),'success');
+    };
+    root.querySelectorAll('[data-t3test]').forEach(b=>{
+      b.onclick = async ()=>{
+        const ch = b.dataset.t3test;
+        const to = formVal(root, 't3_test_to');
+        if(!to && ch !== 'slack'){ toast(T('t3.testNeedNo'),'warn'); return; }
+        b.disabled = true;
+        try{
+          const r = await API.call('testAlert', ch, to);
+          toast(T('t3.testSent')+' ('+r.status+')', r.status==='sent'?'success':'warn');
+          const ml = document.querySelector('[data-t3log]');
+          if(ml) Alerts.renderLog(ml);
+        }catch(e){ toast(e.message,'error'); }
+        b.disabled = false;
+      };
+    });
+  },
+
+  /* Message log table with per-row resend. */
+  async renderLog(el){
+    el.setAttribute('data-t3log','1');
+    el.innerHTML = '<div class="py-8 text-center"><span class="spinner"></span></div>';
+    let rows = [];
+    try{ rows = await API.call('listMessageLog', 100); }catch(e){ el.innerHTML = `<div class="text-sm text-red-600">${esc(e.message)}</div>`; return; }
+    if(!rows.length){ el.innerHTML = `<div class="text-sm text-slate-400 py-6 text-center">${T('t3.noLogs')}</div>`; return; }
+    el.innerHTML = tableHTML([
+      {label:T('t3.cTime'), get:r=>`<span class="tabular-nums text-xs whitespace-nowrap">${fmtDateTime(r.ts)}</span>`},
+      {label:T('t3.cChannel'), get:r=>r.channel==='whatsapp'?badge('WhatsApp','emerald'):r.channel==='sms'?badge('SMS','sky'):badge('—','slate')},
+      {label:T('t3.cTo'), get:r=>`<span class="font-mono text-xs">${esc(r.to||'—')}</span>`},
+      {label:T('t3.cEvent'), get:r=>`<span class="text-xs font-medium text-slate-600">${esc(evLabel(r.event))}</span>`},
+      {label:T('t3.cStatus'), get:r=>statusBadge(r.status)},
+      {label:T('t3.cError'), get:r=>r.error?`<span class="text-xs text-red-500 max-w-[220px] block truncate" title="${esc(r.error)}">${esc(r.error)}</span>`:'<span class="text-slate-300">—</span>'},
+      {label:'', get:r=>`<div class="flex justify-end"><button class="${btnS} !px-3 !py-1.5 !text-xs" data-t3resend="${esc(r.id)}">${T('t3.resend')}</button></div>`},
+    ], rows, {empty:T('t3.noLogs'), compact:true});
+    el.querySelectorAll('[data-t3resend]').forEach(b=>{
+      b.onclick = async ()=>{
+        b.disabled = true;
+        try{
+          const r = await API.call('resendAlert', b.dataset.t3resend);
+          toast(T('t3.resent')+' ('+r.status+')', r.status==='sent'?'success':'warn');
+          Alerts.renderLog(el);
+        }catch(e){ toast(e.message,'error'); b.disabled=false; }
+      };
+    });
+  },
+
+  /* Fire alert checks after punch / leave decisions without touching those
+     flows' files. Idempotent: safe to call once per page load. */
+  patch(){
+    if(window.__t3patched) return;
+    window.__t3patched = true;
+    const SKIP = {runAlertChecks:1, alertLeaveDecision:1, checkAbsences:1, listMessageLog:1, resendAlert:1, testAlert:1, sendAlert:1};
+    const apply = ()=>{
+      if(!window.API || !window.API.call || window.API.call.__t3) return false;
+      const orig = window.API.call.bind(window.API);
+      const wrapped = async function(fn){
+        const args = Array.prototype.slice.call(arguments, 1);
+        const r = await orig.apply(null, [fn].concat(args));
+        try{
+          if(!SKIP[fn]){
+            if(fn==='punch' && r && r.punch) orig('runAlertChecks', args[0]).catch(function(){});
+            else if(fn==='devicePunch' && r && r.punch) orig('runAlertChecks', args[1]).catch(function(){});
+            else if(fn==='decideLeave') orig('alertLeaveDecision', args[0]).catch(function(){});
+          }
+        }catch(e){}
+        return r;
+      };
+      wrapped.__t3 = true;
+      window.API.call = wrapped;
+      return true;
+    };
+    if(!apply()){
+      const iv = setInterval(()=>{ if(apply()) clearInterval(iv); }, 300);
+      setTimeout(()=>clearInterval(iv), 10000);
+    }
+  }
+};
+
+window.Alerts = Alerts;
+Alerts.patch();
+})();
+
+
+/* ===== 165_geofence.js ===== */
+/* 165_geofence.js — TRACK 5: geofence auto-punch support for the native Android app.
+   New-file only: nothing here edits 30_punch.js or any other module. The punch
+   page hook is applied lazily (hashchange + retry), so script load order never
+   matters. Exposes window.AndroidGetPunchConfig() for the native WebView
+   bridge and injects a small "Automatic attendance" toggle card into the
+   punch page DOM. */
+(function(){
+'use strict';
+
+/* ---------- minimal I18N shim (first track to need it defines it) ---------- */
+if(!window.I18N){
+  window.I18N = {
+    lang: (window.AMS_LANG || 'en'),
+    dict: { en: {}, ur: {} },
+    t: function(k){
+      var d = window.I18N.dict || {};
+      var lang = window.I18N.lang || 'en';
+      if(d[lang] && d[lang][k] != null) return d[lang][k];
+      if(d.en && d.en[k] != null) return d.en[k];
+      return k;
+    }
+  };
+}
+Object.assign(I18N.dict.en, {
+  't5.autoTitle': 'Automatic attendance',
+  't5.autoDesc': 'When ON, the Android app may check you in or out automatically when you enter or leave your assigned site geofences. Manual punches always work.',
+  't5.isOn': 'Automatic attendance is ON for this employee.',
+  't5.isOff': 'Automatic attendance is OFF — the app will not auto-punch.',
+  't5.saved': 'Preference saved',
+  't5.saveFail': 'Could not save preference'
+});
+Object.assign(I18N.dict.ur, {
+  't5.autoTitle': 'خودکار حاضری',
+  't5.autoDesc': 'آن ہونے پر اینڈرائیڈ ایپ آپ کے مقررہ سائٹ کے دائرے میں داخل ہونے یا نکلنے پر خودکار حاضری لگا سکتی ہے۔ دستی حاضری ہمیشہ کام کرتی ہے۔',
+  't5.isOn': 'اس ملازم کے لیے خودکار حاضری آن ہے۔',
+  't5.isOff': 'خودکار حاضری آف ہے — ایپ خودکار حاضری نہیں لگائے گی۔',
+  't5.saved': 'ترجیح محفوظ ہو گئی',
+  't5.saveFail': 'ترجیح محفوظ نہیں ہو سکی'
+});
+
+/* ---------- cached config shared by the bridge and the toggle ---------- */
+const T5 = {
+  cache: { autoPunch: true, sites: [], deviceId: '', employeeId: '' },
+  myEmployeeId(){
+    try{
+      const sel = document.querySelector('[name="empId"]');
+      if(sel && sel.value) return sel.value;
+    }catch(e){}
+    const u = (typeof Session !== 'undefined' && Session.user) || {};
+    return u.employeeId || '';
+  },
+  /* Refresh the cached toggle state, geofences and bound device id. Safe to
+     call in mock mode or offline: failures keep the last known values. */
+  async refresh(employeeId){
+    const eid = employeeId || T5.myEmployeeId();
+    if(!eid) return T5.cache;
+    try{
+      const g = await API.call('getAutoPunch', eid);
+      if(g) T5.cache.autoPunch = !!g.autoPunch;
+    }catch(e){}
+    try{
+      const sites = await API.call('getAssignedGeofences', eid);
+      if(Array.isArray(sites)) T5.cache.sites = sites.map(s=>({
+        siteId: s.siteId, name: s.name,
+        lat: Number(s.lat), lng: Number(s.lng), radiusM: Number(s.radiusM) || 200
+      }));
+    }catch(e){}
+    try{
+      const emps = await API.call('listEmployees');
+      const me = (emps || []).filter(x=>String(x.id) === String(eid))[0];
+      if(me) T5.cache.deviceId = me.deviceId || '';
+    }catch(e){}
+    T5.cache.employeeId = eid;
+    return T5.cache;
+  }
+};
+window.T5 = T5;
+
+/* ---------- native bridge: JSON STRING, no selfie or face data ---------- */
+/* The session token is read exactly like 01_api.js does: Session.user, which
+   is parsed from localStorage key 'ams_session' (set at login). */
+window.AndroidGetPunchConfig = function(){
+  const u = (typeof Session !== 'undefined' && Session.user) || {};
+  const cfg = {
+    token: u.token || '',
+    tenantId: u.tenantId || '',
+    employeeId: T5.cache.employeeId || u.employeeId || '',
+    autoPunch: !!T5.cache.autoPunch,
+    deviceId: T5.cache.deviceId || '',
+    sites: T5.cache.sites || []
+  };
+  /* refresh in the background so the next call is fresh; never throws */
+  try{ T5.refresh(cfg.employeeId).catch(()=>{}); }catch(e){}
+  return JSON.stringify(cfg);
+};
+/* Async variant the app can await when it needs guaranteed-fresh values. */
+window.AndroidRefreshPunchConfig = async function(employeeId){
+  await T5.refresh(employeeId);
+  return window.AndroidGetPunchConfig();
+};
+
+/* ---------- "Automatic attendance" toggle card on the punch page ---------- */
+function t5CardHTML(on){
+  return `<div class="max-w-5xl mt-4" id="t5-auto-card">
+    <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.05)] p-6 anim-fadeUp">
+      <div class="flex items-center justify-between gap-4">
+        <div class="min-w-0">
+          <h3 class="font-display font-bold text-slate-800">${esc(I18N.t('t5.autoTitle'))}</h3>
+          <p class="text-sm text-slate-500 mt-1">${esc(I18N.t('t5.autoDesc'))}</p>
+        </div>
+        <label class="relative inline-flex cursor-pointer items-center shrink-0" title="${esc(I18N.t('t5.autoTitle'))}">
+          <input type="checkbox" id="t5-auto-toggle" class="sr-only peer"${on ? ' checked' : ''}>
+          <span class="block w-11 h-6 rounded-full bg-slate-200 peer-checked:bg-teal-500 transition-colors"></span>
+          <span class="absolute left-0.5 top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform peer-checked:translate-x-5 pointer-events-none"></span>
+        </label>
+      </div>
+      <div id="t5-auto-status" class="text-xs text-slate-400 mt-3">${esc(I18N.t(on ? 't5.isOn' : 't5.isOff'))}</div>
+    </div>
+  </div>`;
+}
+
+function injectToggle(){
+  try{
+    if(!Session.user) return false;
+    if(document.getElementById('t5-auto-card')) return true;
+    /* punch page marker: 30_punch.js renders a "<cid>-msg" div */
+    const msg = document.querySelector('[id$="-msg"]');
+    if(!msg) return false;
+    const grid = msg.closest('.grid');
+    if(!grid || !grid.parentNode) return false;
+    const eid = T5.myEmployeeId();
+    if(!eid) return false;
+    grid.insertAdjacentHTML('afterend', t5CardHTML(true));
+    const tgl = document.getElementById('t5-auto-toggle');
+    const status = document.getElementById('t5-auto-status');
+    if(!tgl || !status) return false;
+    const paint = on=>{
+      tgl.checked = !!on;
+      status.textContent = I18N.t(on ? 't5.isOn' : 't5.isOff');
+    };
+    /* load the real toggle state + warm the bridge cache */
+    T5.refresh(eid).then(()=>paint(T5.cache.autoPunch)).catch(()=>{});
+    tgl.addEventListener('change', async ()=>{
+      tgl.disabled = true;
+      try{
+        const r = await API.call('setAutoPunch', eid, tgl.checked);
+        T5.cache.autoPunch = !!(r && r.autoPunch);
+        paint(T5.cache.autoPunch);
+        toast(I18N.t('t5.saved'), 'success');
+      }catch(e){
+        paint(!tgl.checked);
+        toast((e && e.message) || I18N.t('t5.saveFail'), 'error');
+      }
+      tgl.disabled = false;
+    });
+    return true;
+  }catch(e){ return false; }
+}
+
+/* Hook the punch route lazily: the route renders asynchronously, so retry
+   until the marker appears (or give up quietly). */
+let t5Timer = null;
+function maybeHookT5(){
+  if((location.hash || '') !== '#/punch') return;
+  let tries = 0;
+  if(t5Timer) clearInterval(t5Timer);
+  t5Timer = setInterval(()=>{
+    tries++;
+    let done = false;
+    try{ done = injectToggle(); }catch(e){ done = false; }
+    if(done || tries > 24) clearInterval(t5Timer);
+  }, 250);
+}
+window.addEventListener('hashchange', maybeHookT5);
+maybeHookT5();
+})();
+
+
+/* ===== 170_rules.js ===== */
+/* 170_rules.js — TRACK 6: HR rules engine frontend.
+   New-file only: nothing here edits 130_settings.js, 11_layout.js or any other
+   module. Adds the admin-only "#/rules" page (nav + route registered at load,
+   same pattern as 130_settings.js) which lists every HR rule with its
+   description, shows where each value comes from (rule row / Settings /
+   built-in default), and lets admins save changes through getRules/saveRule. */
+(function(){
+'use strict';
+
+/* ---------- minimal I18N shim (same shape as 165_geofence.js) ---------- */
+if(!window.I18N){
+  window.I18N = {
+    lang: (window.AMS_LANG || 'en'),
+    dict: { en: {}, ur: {} },
+    t: function(k){
+      var d = window.I18N.dict || {};
+      var lang = window.I18N.lang || 'en';
+      if(d[lang] && d[lang][k] != null) return d[lang][k];
+      if(d.en && d.en[k] != null) return d.en[k];
+      return k;
+    }
+  };
+}
+Object.assign(I18N.dict.en, {
+  't6.nav': 'HR Rules',
+  't6.title': 'HR Rules',
+  't6.subtitle': 'Attendance, leave and payroll rules applied across the company',
+  't6.group.attendance': 'Attendance',
+  't6.group.payroll': 'Payroll',
+  't6.src.rule': 'Rule',
+  't6.src.settings': 'Settings',
+  't6.src.default': 'Default',
+  't6.save': 'Save changes',
+  't6.saved': 'Rules saved',
+  't6.saveFail': 'Could not save rules',
+  't6.loadFail': 'Could not load rules',
+  't6.adminOnly': 'Only admins can change rules — you have view access.',
+  't6.noChanges': 'No changes to save'
+});
+Object.assign(I18N.dict.ur, {
+  't6.nav': 'HR قواعد',
+  't6.title': 'HR قواعد',
+  't6.subtitle': 'کمپنی بھر میں لاگو حاضری، چھٹی اور تنخواہ کے قواعد',
+  't6.group.attendance': 'حاضری',
+  't6.group.payroll': 'تنخواہ',
+  't6.src.rule': 'قاعدہ',
+  't6.src.settings': 'سیٹنگز',
+  't6.src.default': 'ڈیفالٹ',
+  't6.save': 'تبدیلیاں محفوظ کریں',
+  't6.saved': 'قواعد محفوظ ہو گئے',
+  't6.saveFail': 'قواعد محفوظ نہیں ہو سکے',
+  't6.loadFail': 'قواعد لوڈ نہیں ہو سکے',
+  't6.adminOnly': 'صرف منتظم قواعد تبدیل کر سکتے ہیں — آپ صرف دیکھ سکتے ہیں۔',
+  't6.noChanges': 'محفوظ کرنے کے لیے کوئی تبدیلی نہیں'
+});
+
+/* ---------- nav + route (runtime registration, no existing file touched) ---------- */
+App.nav.push({group:'SYSTEM', path:'#/rules', label:I18N.t('t6.nav'), labelKey:'t6.nav', icon:'settings', perm:'settings'});
+
+const T6_BADGE = {
+  rule: 'bg-teal-50 text-teal-700 ring-teal-600/20',
+  settings: 'bg-amber-50 text-amber-700 ring-amber-600/20',
+  default: 'bg-slate-100 text-slate-500 ring-slate-500/20'
+};
+
+function t6Editor(cid, r, canEdit){
+  const dis = canEdit ? '' : ' disabled';
+  const base = 't6v-' + r.key;
+  if(r.valueType === 'bool'){
+    return `<label class="relative inline-flex cursor-pointer items-center${canEdit?'':' opacity-60 pointer-events-none'}">
+      <input type="checkbox" id="${cid}-${base}" data-key="${esc(r.key)}" class="sr-only peer"${r.value?' checked':''}${dis}>
+      <span class="block w-11 h-6 rounded-full bg-slate-200 peer-checked:bg-teal-500 transition-colors"></span>
+      <span class="absolute left-0.5 top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform peer-checked:translate-x-5 pointer-events-none"></span>
+    </label>`;
+  }
+  if(r.options && r.options.length){
+    return `<select id="${cid}-${base}" data-key="${esc(r.key)}" class="w-44 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 bg-white focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none"${dis}>
+      ${r.options.map(o=>`<option value="${esc(o)}"${String(r.value)===o?' selected':''}>${esc(o)}</option>`).join('')}
+    </select>`;
+  }
+  if(r.valueType === 'time'){
+    return `<input type="time" id="${cid}-${base}" data-key="${esc(r.key)}" value="${esc(r.value||'')}" class="w-44 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 bg-white focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none"${dis}>`;
+  }
+  return `<input type="number" id="${cid}-${base}" data-key="${esc(r.key)}" value="${esc(r.value)}"${r.valueType==='int'?' step="1"':''} class="w-44 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 bg-white focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none"${dis}>`;
+}
+
+App.routes['#/rules'] = async (el)=>{
+  const cid = uid('rules');
+  const canEdit = ((Session.user||{}).role === 'admin');
+  el.innerHTML = pageHead(I18N.t('t6.title'), I18N.t('t6.subtitle')) +
+    `<div id="${cid}-body"><div class="bg-white rounded-2xl border border-slate-200/70 p-6"><div class="h-5 shimmer rounded-xl w-1/4 mb-4"></div><div class="h-24 shimmer rounded-xl"></div></div></div>`;
+
+  let rules;
+  try{
+    rules = await API.call('getRules');
+  }catch(e){
+    document.getElementById(cid+'-body').innerHTML =
+      `<div class="bg-red-50 border border-red-200 text-red-700 rounded-xl p-4 text-sm">${esc(I18N.t('t6.loadFail'))}: ${esc(e.message||'')}</div>`;
+    return;
+  }
+  rules = Array.isArray(rules) ? rules : [];
+  const groups = ['attendance', 'payroll'];
+
+  document.getElementById(cid+'-body').innerHTML = groups.map(g=>{
+    const rows = rules.filter(r=>r.group===g);
+    if(!rows.length) return '';
+    return `<div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.05)] p-6 mb-4">
+      <h3 class="font-display font-bold text-slate-800 mb-2">${esc(I18N.t('t6.group.'+g))}</h3>
+      <div class="divide-y divide-slate-100">
+      ${rows.map(r=>`
+        <div class="flex items-center justify-between gap-6 py-4">
+          <div class="min-w-0">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="text-sm font-semibold text-slate-700">${esc(r.key)}</span>
+              <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ring-1 ring-inset ${T6_BADGE[r.source]||T6_BADGE.default}">${esc(I18N.t('t6.src.'+(r.source||'default')))}</span>
+            </div>
+            <div class="text-xs text-slate-400 mt-1 max-w-xl">${esc(r.description||'')}</div>
+          </div>
+          <div class="shrink-0">${t6Editor(cid, r, canEdit)}</div>
+        </div>`).join('')}
+      </div>
+    </div>`;
+  }).join('') + (canEdit
+    ? `<button class="${btnP}" id="${cid}-save" disabled>${esc(I18N.t('t6.save'))}</button>
+       <span id="${cid}-msg" class="ml-3 text-sm text-slate-400"></span>`
+    : `<p class="text-sm text-slate-400">${esc(I18N.t('t6.adminOnly'))}</p>`);
+
+  if(!canEdit) return;
+
+  const readVal = r=>{
+    const inp = document.getElementById(cid+'-t6v-'+r.key);
+    if(!inp) return r.value;
+    if(r.valueType==='bool') return inp.checked;
+    return inp.value;
+  };
+  const norm = r=>{
+    const v = readVal(r);
+    if(r.valueType==='bool') return !!v;
+    return String(v);
+  };
+  const dirty = ()=> rules.some(r=> norm(r) !== (r.valueType==='bool' ? !!r.value : String(r.value)));
+  const paint = ()=>{
+    const btn = document.getElementById(cid+'-save');
+    if(btn) btn.disabled = !dirty();
+  };
+  rules.forEach(r=>{
+    const inp = document.getElementById(cid+'-t6v-'+r.key);
+    if(inp) inp.addEventListener('change', paint);
+  });
+
+  document.getElementById(cid+'-save').onclick = async ()=>{
+    const btn = document.getElementById(cid+'-save');
+    const msg = document.getElementById(cid+'-msg');
+    const changed = rules.filter(r=> norm(r) !== (r.valueType==='bool' ? !!r.value : String(r.value)));
+    if(!changed.length){ toast(I18N.t('t6.noChanges'), 'info'); return; }
+    btn.disabled = true;
+    try{
+      for(const r of changed){
+        const res = await API.call('saveRule', r.key, readVal(r));
+        r.value = res.value;
+        r.source = 'rule';
+      }
+      toast(I18N.t('t6.saved'), 'success');
+      if(msg) msg.textContent = '';
+    }catch(e){
+      toast((e && e.message) || I18N.t('t6.saveFail'), 'error');
+    }
+    paint();
+  };
 };
 })();
 

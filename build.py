@@ -33,7 +33,7 @@ import pathlib, re, subprocess, sys
 ROOT = pathlib.Path(__file__).resolve().parent
 SRC = ROOT / 'src' / 'js'
 DEPLOY = ROOT / 'deploy'
-PART_LIMIT = 110 * 1024    # max JS bytes per part (whole files only, never split mid-file)
+PART_LIMIT = 130 * 1024    # max JS bytes per part (whole files only, never split mid-file)
 DEPLOY_LIMIT = 150 * 1024  # max bytes per file pasted into the Apps Script editor
 
 files = sorted(SRC.glob('*.js'), key=lambda p: p.name)

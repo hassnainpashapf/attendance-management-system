@@ -97,34 +97,54 @@ App.routes['#/settings'] = async (el)=>{
   const ss=document.getElementById(cid+'-saveSmtp');
   if(ss) ss.onclick=async()=>{ await API.call('saveSettings',collectForm(smtp)); toast('SMTP settings saved','success'); };
 
-  /* ZKTeco device settings */
+  /* ZKTeco device settings — premium card */
   const zk=document.getElementById(cid+'-zkt');
   if(zk){
     let z={};
     try{ z=await API.call('getZktSettings'); }catch(e){ z={}; }
+    const zOn = z.zkt_enabled==='1'||z.zkt_enabled===1;
+    const zCfg = !!(z.zkt_device_id && z.zkt_api_key);
+    const zReady = zOn && zCfg && !!z.zkt_ip;
+    const stTx = zReady?'Ready':zCfg?'Incomplete':'Not set up';
+    const stC = zReady?'bg-emerald-400/25':zCfg?'bg-amber-400/25':'bg-white/15';
+    const dtC = zReady?'bg-emerald-300':zCfg?'bg-amber-300':'bg-white/70';
     zk.innerHTML=`
-      <div class="rounded-xl border border-slate-200/70 p-4 mb-4">
-        <div class="flex items-center gap-2 mb-3">
-          <span class="text-base">🔐</span><span class="font-semibold text-slate-700 text-sm">Device connection</span>
-          <label class="ml-auto inline-flex items-center gap-2 text-xs text-slate-500 cursor-pointer">
-            <input type="checkbox" name="zkt_enabled" ${z.zkt_enabled==='1'||z.zkt_enabled===1?'checked':''} ${canEdit?'':'disabled'} class="w-4 h-4 rounded accent-teal-600"> Enabled
-          </label>
+      <div class="rounded-2xl overflow-hidden border border-slate-200/70 shadow-sm mb-4">
+        <div class="px-5 py-4 flex items-center gap-3 bg-gradient-to-br from-teal-700 via-teal-600 to-teal-500">
+          <div class="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center text-white text-xl shrink-0">◉</div>
+          <div class="min-w-0"><div class="text-white font-bold text-[15px]">Biometric device</div><div class="text-teal-100/90 text-xs">ZKTeco fingerprint / face terminal</div></div>
+          <span class="ml-auto inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-full text-white ring-1 ring-white/40 ${stC}"><span class="w-1.5 h-1.5 rounded-full ${dtC}"></span>${stTx}</span>
         </div>
-        <div class="grid grid-cols-2 gap-4">
-          <div>${field('Device ID','zkt_device_id',{value:z.zkt_device_id||'',ph:'e.g. ZKT-Office-01'})}</div>
-          <div>${field('API key','zkt_api_key',{type:'password',value:z.zkt_api_key||'',ph:'secret key for the device'})}</div>
-          <div>${field('Device IP (port-forwarded)','zkt_ip',{value:z.zkt_ip||'',ph:'e.g. 203.0.113.45'})}</div>
-          <div>${field('Device port','zkt_port',{type:'number',value:z.zkt_port||'4370',ph:'4370'})}</div>
+        <div class="p-5 bg-white">
+          <div class="flex items-center justify-between mb-4">
+            <div class="text-sm font-semibold text-slate-700">Device connection</div>
+            <label class="relative inline-flex cursor-pointer items-center ${canEdit?'':'opacity-60 pointer-events-none'}">
+              <input type="checkbox" name="zkt_enabled" ${zOn?'checked':''} class="sr-only peer">
+              <div class="w-9 h-5 bg-slate-200 peer-checked:bg-teal-600 rounded-full transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:w-4 after:h-4 after:bg-white after:rounded-full after:transition-transform peer-checked:after:translate-x-4 after:shadow"></div>
+              <span class="ml-2 text-xs font-medium text-slate-500">Enabled</span>
+            </label>
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div>${field('Device ID','zkt_device_id',{value:z.zkt_device_id||'',ph:'e.g. ZKT-Office-01'})}</div>
+            <div>${field('API key','zkt_api_key',{type:'password',value:z.zkt_api_key||'',ph:'Secret key'})}</div>
+            <div>${field('Device IP (port-forwarded)','zkt_ip',{value:z.zkt_ip||'',ph:'e.g. 203.0.113.45'})}</div>
+            <div>${field('Device port','zkt_port',{type:'number',value:z.zkt_port||'4370'})}</div>
+          </div>
+          <div class="mt-4 rounded-xl bg-slate-50 border border-slate-200/70 p-4">
+            <div class="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">Setup</div>
+            ${['Forward TCP port 4370 on your router to the ZKTeco device.','Enter the public IP + port above, with a Device ID and API key.','Save — punches sync automatically. Employee codes must match.']
+              .map((t,i)=>`<div class="flex items-start gap-2 mb-1.5 last:mb-0"><span class="w-5 h-5 rounded-full bg-teal-600 text-white text-[10px] font-bold flex items-center justify-center shrink-0">${i+1}</span><span class="text-xs text-slate-600">${t}</span></div>`).join('')}
+          </div>
         </div>
-        <p class="text-[11px] text-slate-400 mt-2">Port-forward your ZKTeco device (TCP port 4370) on your router so it is reachable online, then enter its public IP and port here. A connector on the server polls the device and pushes punches automatically. Employee codes on the device must match employee codes here.</p>
       </div>
-      <div class="rounded-xl bg-slate-50 border border-slate-200/70 p-4 mb-4">
-        <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Webhook URL (POST JSON here)</div>
-        <code class="block text-[11px] text-slate-600 break-all bg-white border border-slate-200 rounded-lg p-2.5">${esc(z.webhookUrl||'')}</code>
-        <div class="text-[11px] text-slate-400 mt-2">Payload: <code>{"zkt":1,"deviceId":"…","apiKey":"…","punches":[{"empCode":"E001","time":"2026-10-07 09:00:00","type":"in"}]}</code></div>
-        ${z.zkt_last_sync?`<div class="text-[11px] text-slate-400 mt-1">Last sync: ${esc(z.zkt_last_sync)}</div>`:''}
+      <div class="rounded-2xl border border-slate-200/70 bg-white shadow-sm p-5 mb-4">
+        <div class="flex items-center justify-between mb-2"><div class="text-xs font-bold uppercase tracking-wider text-slate-400">Webhook URL</div><button class="text-[11px] font-semibold text-teal-600" id="${cid}-copyWh">Copy</button></div>
+        <code class="block text-[11px] text-slate-600 break-all bg-slate-50 border border-slate-200 rounded-xl p-3 font-mono">${esc(z.webhookUrl||'')}</code>
+        ${z.zkt_last_sync?`<div class="mt-3 inline-flex items-center gap-1.5 text-[11px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200/60 rounded-full px-2.5 py-1">✓ Last sync: ${esc(z.zkt_last_sync)}</div>`:`<div class="mt-3 inline-flex items-center gap-1.5 text-[11px] text-slate-400 bg-slate-100 rounded-full px-2.5 py-1">No sync yet</div>`}
       </div>
       ${canEdit?`<button class="${btnP}" id="${cid}-saveZkt">Save ZKTeco settings</button>`:''}`;
+    const cp=document.getElementById(cid+'-copyWh');
+    if(cp) cp.onclick=()=>{ try{ navigator.clipboard.writeText(z.webhookUrl||''); toast('Webhook URL copied','success'); }catch(e){ toast('Copy failed','error'); } };
     const sz=document.getElementById(cid+'-saveZkt');
     if(sz) sz.onclick=async()=>{
       const d=collectForm(zk);
