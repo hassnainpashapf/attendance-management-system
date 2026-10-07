@@ -102,6 +102,24 @@ function verifyAssembly() {
   return out;
 }
 /* Editor-runnable diagnostic: JSON summary of what doGet() would serve. */
+/* Diagnostic: run the REAL getBootstrap translation for the DEMO admin and
+   return exactly what the frontend receives. Run in editor. */
+function debugBootstrap() {
+  var t = rows_('tenants').filter(function (x) { return String(x.loginCode).toUpperCase() === 'DEMO'; })[0];
+  if (!t) { Logger.log('no DEMO tenant'); return 'no DEMO tenant'; }
+  var user = { id: 'U-0001', name: 'Admin', username: 'admin', role: 'admin',
+    tenantId: t.tenantId, spreadsheetId: t.spreadsheetId, token: 'dbg' };
+  var b = API.getBootstrap(user);
+  var out = { permissions: b.permissions,
+    permCheck: {
+      overtime: !!(b.permissions.overtime && b.permissions.overtime.view),
+      payroll: !!(b.permissions.payroll && b.permissions.payroll.view),
+      settings: !!(b.permissions.settings && b.permissions.settings.view)
+    } };
+  Logger.log(JSON.stringify(out));
+  return out;
+}
+
 /* Diagnostic: dump raw rolePermissions rows for the DEMO tenant. Run in editor. */
 function debugPermissions() {
   var t = rows_('tenants').filter(function (x) { return String(x.loginCode).toUpperCase() === 'DEMO'; })[0];
