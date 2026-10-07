@@ -102,6 +102,18 @@ function verifyAssembly() {
   return out;
 }
 /* Editor-runnable diagnostic: JSON summary of what doGet() would serve. */
+/* Diagnostic: dump raw rolePermissions rows for the DEMO tenant. Run in editor. */
+function debugPermissions() {
+  var t = rows_('tenants').filter(function (x) { return String(x.loginCode).toUpperCase() === 'DEMO'; })[0];
+  if (!t) { Logger.log('no DEMO tenant'); return 'no DEMO tenant'; }
+  var ss = SpreadsheetApp.openById(t.spreadsheetId);
+  var out = trows_(ss, 'rolePermissions').map(function (r) {
+    return { role: r.role, keys: Object.keys(JSON.parse(r.matrix || '{}')) };
+  });
+  Logger.log(JSON.stringify(out));
+  return out;
+}
+
 function debugAssembly() {
   var shell = HtmlService.createHtmlOutputFromFile('index').getContent();
   var p2 = partScript('app2');
