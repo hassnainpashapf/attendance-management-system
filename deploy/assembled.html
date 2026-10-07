@@ -2521,6 +2521,18 @@ App.routes['#/debug'] = async function(el){
     var inc = App.nav.filter(function(n){ return n.group===gk && perm(n.perm,'view') && (!n.superadmin||((Session.user||{}).role==='superadmin')); }).map(function(n){ return n.path; });
     liveFilter = 'live filter SYSTEM items: ' + inc.join(', ');
   } catch(e){ liveFilter = 'live filter ERR: ' + e.message; }
+  /* simulate the exact map step for SYSTEM and catch any throw per item */
+  var mapTest = '';
+  try {
+    var gk2 = 'SYSTEM';
+    var items2 = App.nav.filter(function(n){ return n.group===gk2 && perm(n.perm,'view') && (!n.superadmin||((Session.user||{}).role==='superadmin')); });
+    mapTest = items2.map(function(n){
+      try {
+        var lbl = I18N.t(n.labelKey);
+        return n.path + ' => label="' + lbl + '" OK';
+      } catch(e){ return n.path + ' => THROWS: ' + e.message; }
+    }).join('\n');
+  } catch(e){ mapTest = 'mapTest ERR: ' + e.message; }
   var perms = {};
   try { perms = (Session.bootstrap||{}).permissions || {}; } catch(e){}
   var navHtml = '';
@@ -2533,7 +2545,9 @@ App.routes['#/debug'] = async function(el){
     '<h2 class="font-bold mt-4 mb-1">Rendered sidebar HTML (does it contain #/rules?)</h2>' +
     '<pre class="text-xs bg-slate-100 p-3 rounded overflow-auto">' + String(navHtml).replace(/</g,'&lt;').slice(0, 6000) + '</pre>' +
     '<h2 class="font-bold mt-4 mb-1">#/rules filter diagnosis</h2>' +
-    '<pre class="text-xs bg-slate-100 p-3 rounded overflow-auto">' + String(diag).replace(/</g,'&lt;') + '\n' + String(liveFilter).replace(/</g,'&lt;') + '</pre></div>';
+    '<pre class="text-xs bg-slate-100 p-3 rounded overflow-auto">' + String(diag).replace(/</g,'&lt;') + '\n' + String(liveFilter).replace(/</g,'&lt;') + '</pre>' +
+    '<h2 class="font-bold mt-4 mb-1">Per-item map test (does I18N.t throw?)</h2>' +
+    '<pre class="text-xs bg-slate-100 p-3 rounded overflow-auto">' + String(mapTest).replace(/</g,'&lt;') + '</pre></div>';
 };
 })();
 
