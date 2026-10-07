@@ -10,17 +10,22 @@ CRITICAL: app2.html / app3.html MUST be complete, valid HTML documents (not
 bare <script> fragments) — HtmlService.createHtmlOutputFromFile().getContent()
 returns EMPTY for fragment files, which shipped a blank page (the boot code
 lives in part 2). doGet() extracts each part's single <script> block with
-indexOf/lastIndexOf and inserts it at the placeholder.
+indexOf/lastIndexOf and injects both blocks immediately before the shell's
+</body> (HTML-comment placeholders are unreliable: getContent() may strip
+comments, silently dropping parts 2/3).
+
+The shell (src/index.html) carries a small client-side error reporter as the
+FIRST inline script in <body> so any JS failure shows a red banner instead of
+a silent blank page.
 
 Outputs (all in deploy/):
-  index.html      - shell: markup before the app script, then <script>PART1</script>,
-                    then literal placeholders <!--APP_PART_2--> / <!--APP_PART_3-->,
-                    then the rest of the markup. Deploy this file as `index`.
+  index.html      - shell: markup, error-reporter script, then <script>PART1</script>.
+                    Deploy this file as `index`.
   app2.html       - valid HTML document wrapping <script>PART2</script>.
                     Deploy this file as `app2`.
   app3.html       - valid HTML document wrapping <script>PART3</script>.
                     Deploy this file as `app3`.
-  assembled.html  - placeholders replaced by the EXTRACTED script blocks;
+  assembled.html  - shell + EXTRACTED script blocks injected before </body>;
                     QA-ONLY, NOT deployed. Byte-identical to what doGet() serves.
 """
 import pathlib, re, subprocess, sys
@@ -121,19 +126,63 @@ def extract_script(doc):
     assert i >= 0 and j > i, 'no script block in part document'
     return doc[i:j + 9]
 
+# --- 3c. part JS must not contain literal </body or </html OUTSIDE string
+# literals: doGet() injects the extracted script blocks immediately before the
+# shell's </body>, and a stray closing tag in raw JS would break HTML parsing
+# of the served page. Occurrences inside strings (e.g. the print-document
+# template literal in 00_utils.js) are inert script text and are allowed.
+def _strip_strings(js):
+    out, k, n = [], 0, len(js)
+    while k < n:
+        c = js[k]
+        if c in ('"', "'", '`'):
+            q = c; k += 1
+            while k < n:
+                if js[k] == '\\':
+                    k += 2; continue
+                if js[k] == q:
+                    k += 1; break
+                # template literal ${...} interpolation: keep code, it is real JS
+                if q == '`' and js[k] == '$' and k + 1 < n and js[k + 1] == '{':
+                    depth = 1; k += 2
+                    while k < n and depth:
+                        if js[k] == '\\':
+                            k += 2; continue
+                        if js[k] == '{':
+                            depth += 1
+                        elif js[k] == '}':
+                            depth -= 1
+                        k += 1
+                    continue
+                k += 1
+        else:
+            out.append(c); k += 1
+    return ''.join(out)
+for i, js in enumerate(part_js):
+    code_only = _strip_strings(js)
+    bad = [l for l in code_only.split('\n') if '</body' in l.lower() or '</html' in l.lower()]
+    if bad:
+        print('BODY-CLOSE HAZARD in part %d: literal </body or </html outside strings:' % (i + 1))
+        for l in bad[:5]:
+            print('   ', l.strip()[:120])
+        sys.exit(1)
+print('Body-close check OK (no literal </body / </html outside strings in any part)')
+
 tpl = (ROOT / 'src' / 'index.html').read_text()
-shell = tpl.replace('<!-- APP_JS -->',
-                    script_block(part_js[0]) + '\n<!--APP_PART_2-->\n<!--APP_PART_3-->')
-if '<!--APP_PART_2-->' not in shell or '<!--APP_PART_3-->' not in shell:
-    print('PLACEHOLDER CHECK FAILED: <!--APP_PART_2-->/<!--APP_PART_3--> missing from shell')
+shell = tpl.replace('<!-- APP_JS -->', script_block(part_js[0]))
+if 'APP_PART' in shell:
+    print('PLACEHOLDER CHECK FAILED: stale APP_PART placeholder in shell')
+    sys.exit(1)
+if '</body>' not in shell:
+    print('SHELL CHECK FAILED: shell has no </body> for doGet() injection')
     sys.exit(1)
 app2_html = part_doc(part_js[1])
 app3_html = part_doc(part_js[2])
-# mirror doGet()'s extraction + split/join reassembly exactly
-assembled = extract_script(app2_html).join(shell.split('<!--APP_PART_2-->'))
-assembled = extract_script(app3_html).join(assembled.split('<!--APP_PART_3-->'))
-if '<!--APP_PART_2-->' in assembled or '<!--APP_PART_3-->' in assembled:
-    print('ASSEMBLY CHECK FAILED: placeholder survived replacement')
+# mirror doGet() exactly: inject extracted script blocks before the LAST </body>
+k = shell.rindex('</body>')
+assembled = shell[:k] + extract_script(app2_html) + extract_script(app3_html) + shell[k:]
+if 'APP_PART' in assembled:
+    print('ASSEMBLY CHECK FAILED: APP_PART marker survived assembly')
     sys.exit(1)
 
 DEPLOY.mkdir(parents=True, exist_ok=True)
@@ -156,10 +205,12 @@ def inline_scripts(html):
     return [m.group(1) for m in
             re.finditer(r'<script(?![^>]*\bsrc\b)[^>]*>([\s\S]*?)</script>', html)]
 blocks = inline_scripts(assembled)
-if len(blocks) != 3 or '\n'.join(b[1:-1] for b in blocks) != combined:
+# block 0 = client-side error reporter (shell), blocks 1-3 = the 3 app parts
+if len(blocks) != 4 or 'boot-errors' not in blocks[0] \
+        or '\n'.join(b[1:-1] for b in blocks[1:]) != combined:
     print('ASSEMBLED EQUIVALENCE CHECK FAILED')
     sys.exit(1)
-print('Assembled equivalence OK (3 script blocks rejoin to the combined source)')
+print('Assembled equivalence OK (error reporter + 3 script blocks rejoin to the combined source)')
 
 # --- 7. every API.call fn must exist in MockAPI (whole-app check on combined) ---
 fns = set(re.findall(r"API\.call\('([a-zA-Z]+)'", combined))

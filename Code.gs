@@ -57,24 +57,30 @@ var TENANT_TABS = Object.keys(SHEETS).filter(function (k) { return k !== 'tenant
 
 /* ---------------- web app entry ---------------- */
 /* The frontend ships as 3 small HTML files (the Apps Script editor hangs when
-   saving files > ~300KB). index.html holds part 1 inline plus two placeholders;
-   app2.html / app3.html are minimal VALID HTML documents each wrapping one
-   <script> block. NOTE: createHtmlOutputFromFile('app2').getContent() returns
-   EMPTY when the file is a bare <script> fragment instead of a valid document,
-   so the parts must stay valid documents and we extract the script block here
-   with pure string ops (no templates/scriptlets). */
+   saving files > ~300KB). index.html holds part 1 inline; app2.html / app3.html
+   are minimal VALID HTML documents each wrapping one <script> block.
+   NOTE 1: createHtmlOutputFromFile('app2').getContent() returns EMPTY when the
+   file is a bare <script> fragment instead of a valid document, so the parts
+   must stay valid documents and we extract the script block here with pure
+   string ops (no templates/scriptlets).
+   NOTE 2: doGet() injects the extracted script blocks immediately before the
+   shell's </body>. HTML-comment placeholders (<!--APP_PART_*-->) are NOT used:
+   getContent() may strip comments, which silently dropped parts 2/3 and shipped
+   a blank page (the boot code lives in part 2). */
 function partScript(name) {
   var doc = HtmlService.createHtmlOutputFromFile(name).getContent();
   var i = doc.indexOf('<script>');
   var j = doc.lastIndexOf('</script>');
-  if (i < 0 || j < 0 || j <= i) throw new Error('part ' + name + ' has no <script> block (got ' + doc.length + ' chars)');
-  return doc.substring(i, j + 9);
+  if (i < 0 || j < 0 || j <= i) throw new Error('part ' + name + ': no script block (got ' + doc.length + ' chars)');
+  var s = doc.substring(i, j + 9);
+  if (s.length < 50000) throw new Error('part ' + name + ': suspiciously small (' + s.length + ' chars)');
+  return s;
 }
 function doGet() {
-  var html = HtmlService.createHtmlOutputFromFile('index').getContent();
-  html = html.split('<!--APP_PART_2-->').join(partScript('app2'));
-  html = html.split('<!--APP_PART_3-->').join(partScript('app3'));
-  if (html.indexOf('<!--APP_PART_') >= 0) throw new Error('doGet: unreplaced APP_PART placeholder');
+  var shell = HtmlService.createHtmlOutputFromFile('index').getContent();
+  var k = shell.lastIndexOf('</body>');
+  if (k < 0) throw new Error('shell has no </body>');
+  var html = shell.substring(0, k) + partScript('app2') + partScript('app3') + shell.substring(k);
   return HtmlService.createHtmlOutput(html)
     .setTitle('Attendance Management System')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
@@ -92,6 +98,21 @@ function verifyAssembly() {
   out.app3_scriptChars = partScript('app3').length;
   out.app2_hasBoot = partScript('app2').indexOf('11_layout.js') >= 0;
   out.app3_hasDashboard = partScript('app3').indexOf('20_dashboard.js') >= 0;
+  Logger.log(JSON.stringify(out));
+  return out;
+}
+/* Editor-runnable diagnostic: JSON summary of what doGet() would serve. */
+function debugAssembly() {
+  var shell = HtmlService.createHtmlOutputFromFile('index').getContent();
+  var p2 = partScript('app2');
+  var p3 = partScript('app3');
+  var out = {
+    indexChars: shell.length,
+    hasBodyClose: shell.lastIndexOf('</body>') >= 0,
+    part2Chars: p2.length,
+    part3Chars: p3.length,
+    assembledChars: shell.length + p2.length + p3.length
+  };
   Logger.log(JSON.stringify(out));
   return out;
 }
