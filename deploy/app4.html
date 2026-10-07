@@ -1,0 +1,957 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>
+<script>
+
+/* ===== 50_sites.js ===== */
+/* 50_sites.js — site table + Leaflet map picker modal (lat/lng + radius slider)
+   + employee assignment checkboxes. Verola premium styling. */
+(function(){
+'use strict';
+
+App.nav.push({group:'WORKFORCE', path:'#/sites', label:I18N.t('c4.nav.sites'), labelKey:'c4.nav.sites', icon:'sites', perm:'sites'});
+
+/* Verola tokens (local) */
+const vBtnB='px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold shadow active:scale-[.98] transition';
+const vBtnSx='px-3 py-1.5 rounded-xl bg-white border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-xs font-semibold text-slate-600 active:scale-[.98] transition shadow-sm';
+function vHead(title, sub, actions){
+  return `<div class="flex items-center gap-2 text-[13px] text-slate-400 mb-4 anim-fadeUp"><span class="text-base">⌂</span><a href="#/dashboard" class="hover:text-slate-600">${I18N.t('c4.nav.dashboard')}</a><span>›</span><span class="text-slate-700 font-semibold">${title}</span></div>
+  <div class="flex flex-wrap items-center justify-between gap-3 mb-5 anim-fadeUp"><div><h1 class="font-display text-[26px] font-bold text-slate-800 tracking-tight">${title}</h1><p class="text-sm text-slate-400 mt-1">${sub}</p></div><div class="flex gap-2 flex-wrap">${actions||''}</div></div>`;
+}
+function vBadge(ok, yesTxt, noTxt){
+  return ok
+    ?`<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 whitespace-nowrap"><span class="text-[10px]">✓</span>${yesTxt}</span>`
+    :`<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-500 ring-1 ring-slate-200 whitespace-nowrap"><span class="text-[10px]">–</span>${noTxt}</span>`;
+}
+
+App.routes['#/sites'] = async (el)=>{
+  const cid=uid('sites');
+  el.innerHTML=vHead(I18N.t('c4.nav.sites'),I18N.t('c4.sites.sub'),
+    `${perm('sites','edit')?`<button class="${vBtnB}" id="${cid}-add">${I18N.t('c4.sites.addSite')}</button>`:''}`)+
+    `<div id="${cid}-body"></div>`;
+  const body=document.getElementById(cid+'-body');
+  let sites=[], emps=[];
+  async function load(){
+    sites=await API.call('listSites');
+    emps=await API.call('listEmployees');
+    body.innerHTML=tableHTML([
+      {label:I18N.t('c4.sites.colSite'), get:s=>`<div class="flex items-center gap-3"><span class="w-8 h-8 rounded-full bg-slate-200 text-slate-500 text-[11px] font-bold inline-flex items-center justify-center shrink-0"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-3.5 h-3.5"><path d="M12 21s-7-5.5-7-11a7 7 0 0114 0c0 5.5-7 11-7 11z"/><circle cx="12" cy="10" r="2.6"/></svg></span><div><div class="font-semibold text-slate-700">${esc(s.name)}</div><div class="text-xs text-slate-400">${esc(s.address||'—')}</div></div></div>`},
+      {label:I18N.t('c4.sites.colCoords'), get:s=>`<span class="font-mono text-xs text-slate-500">${Number(s.lat).toFixed(4)}, ${Number(s.lng).toFixed(4)}</span>`},
+      {label:I18N.t('c4.sites.colGeofence'), num:1, get:s=>`<span class="tabular-nums text-slate-600">${fmtNum(s.radiusM)} m</span>`},
+      {label:I18N.t('c4.sites.colStaff'), num:1, get:s=>`<span class="tabular-nums font-medium text-slate-700">${fmtNum(s.employeeCount||0)}</span>`},
+      {label:I18N.t('c4.common.status'), get:s=>vBadge(s.active, I18N.t('c4.common.active'), I18N.t('c4.common.inactive'))},
+      {label:'', get:s=>`<div class="flex gap-1 justify-end">
+        <button class="${vBtnSx}" data-map="${s.id}">${I18N.t('c4.sites.mapBtn')}</button>
+        ${perm('sites','edit')?`<button class="${vBtnSx}" data-assign="${s.id}">${I18N.t('c4.sites.assignStaff')}</button>
+        <button class="${vBtnSx}" data-edit="${s.id}">${I18N.t('c4.common.edit')}</button>
+        <button class="${vBtnSx} !text-red-600" data-del="${s.id}">${I18N.t('c4.common.delete')}</button>`:''}</div>`},
+    ], sites, {empty:I18N.t('c4.sites.emptySites')});
+    body.querySelectorAll('[data-map]').forEach(b=>b.onclick=()=>openMapView(sites.find(s=>s.id===b.dataset.map)));
+    body.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openEditor(sites.find(s=>s.id===b.dataset.edit)));
+    body.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{
+      if(!await confirmDlg(I18N.t('c4.sites.delSiteTitle'),I18N.t('c4.sites.delSiteMsg'),I18N.t('c4.common.delete'))) return;
+      await API.call('deleteSite',b.dataset.del); toast(I18N.t('c4.sites.siteDeleted'),'success'); load();
+    });
+    body.querySelectorAll('[data-assign]').forEach(b=>b.onclick=()=>openAssign(b.dataset.assign));
+  }
+
+  function openMapView(s){
+    if(!s) return;
+    const m=modal(esc(s.name),`
+      <div id="siteMapView" class="h-80 rounded-2xl border border-slate-200/70 overflow-hidden"></div>
+      <div class="flex items-center gap-2 mt-4 text-sm text-slate-500">
+        <span class="font-mono text-xs bg-slate-100 px-2.5 py-1.5 rounded-lg">${Number(s.lat).toFixed(6)}, ${Number(s.lng).toFixed(6)}</span>
+        <span class="text-xs">· ${I18N.t('c4.common.geofenceN').replace('{n}',fmtNum(s.radiusM))}</span>
+        <span class="text-xs">· ${esc(s.address||'')}</span>
+      </div>`);
+    const mapEl=m.el.querySelector('#siteMapView');
+    const map=buildMap(mapEl,[Number(s.lat),Number(s.lng)],15);
+    if(map){
+      L.circle([Number(s.lat),Number(s.lng)],{radius:Number(s.radiusM)||150,color:'#0d9488',weight:2,fillOpacity:.08}).addTo(map)
+        .bindPopup(`<b>${esc(s.name)}</b>`).openPopup();
+      L.marker([Number(s.lat),Number(s.lng)]).addTo(map);
+      setTimeout(()=>map.invalidateSize(),150);
+    }
+  }
+
+  function openEditor(s){
+    const isNew=!s; s=s||{name:'',address:'',lat:31.5204,lng:74.3587,radiusM:150,active:true};
+    const m=modal(isNew?I18N.t('c4.sites.addSiteTitle'):I18N.t('c4.sites.editSiteTitle'),`
+      <div class="grid grid-cols-2 gap-4 mb-4">
+        <div class="col-span-2">${field(I18N.t('c4.sites.fSiteName'),'name',{value:s.name,req:true})}</div>
+        <div class="col-span-2">${field(I18N.t('c4.sites.fAddress'),'address',{value:s.address||''})}</div>
+        ${field(I18N.t('c4.sites.fLat'),'lat',{value:s.lat,type:'number',step:'0.000001',req:true})}
+        ${field(I18N.t('c4.sites.fLng'),'lng',{value:s.lng,type:'number',step:'0.000001',req:true})}
+        <div class="col-span-2"><label class="block"><span class="block text-xs font-semibold text-slate-500 mb-1.5 tracking-wide">${I18N.t('c4.sites.fRadius')} · <span id="radVal" class="text-slate-900 font-bold">${fmtNum(s.radiusM)} m</span></span>
+          <input type="range" name="radiusM" min="50" max="1000" step="10" value="${s.radiusM}" class="w-full accent-slate-900"></label></div>
+        <div class="col-span-2">${field(I18N.t('c4.emp.fActive'),'active',{type:'checkbox',value:s.active})}</div>
+      </div>
+      <div id="mapPick" class="h-64 rounded-2xl border border-slate-200/70 overflow-hidden mb-2"></div>
+      <p class="text-xs text-slate-400 mb-4">${I18N.t('c4.sites.mapHint')}</p>
+      <div class="flex justify-end gap-2"><button class="${btnS}" id="sCancel">${I18N.t('c4.common.cancel')}</button><button class="${vBtnB}" id="sSave">${I18N.t('c4.sites.saveSite')}</button></div>`,{wide:true});
+    const mapEl=m.el.querySelector('#mapPick');
+    const map=buildMap(mapEl,[Number(s.lat),Number(s.lng)],14);
+    let marker=null, circle=null;
+    const radInput=m.el.querySelector('[name="radiusM"]');
+    const radVal=m.el.querySelector('#radVal');
+    radInput.addEventListener('input',()=>{ radVal.textContent=fmtNum(radInput.value)+' m'; if(circle) circle.setRadius(Number(radInput.value)); });
+    if(map){
+      marker=L.marker([Number(s.lat),Number(s.lng)],{draggable:true}).addTo(map);
+      circle=L.circle([Number(s.lat),Number(s.lng)],{radius:Number(s.radiusM),color:'#0d9488',weight:2,fillOpacity:.08}).addTo(map);
+      marker.on('dragend',sync);
+      map.on('click',e=>{ marker.setLatLng(e.latlng); sync(); });
+      setTimeout(()=>map.invalidateSize(),150);
+    }
+    function sync(){
+      if(!marker) return;
+      const lat=marker.getLatLng().lat, lng=marker.getLatLng().lng;
+      m.el.querySelector('[name="lat"]').value=lat.toFixed(6);
+      m.el.querySelector('[name="lng"]').value=lng.toFixed(6);
+      if(circle) circle.setLatLng([lat,lng]);
+    }
+    m.el.querySelector('#sCancel').onclick=()=>m.close();
+    m.el.querySelector('#sSave').onclick=async()=>{
+      const data=collectForm(m.el);
+      if(!data.name){ toast(I18N.t('c4.sites.siteNameRequired'),'warn'); return; }
+      data.radiusM=Number(data.radiusM)||150;
+      await API.call('saveSite',{...(isNew?{}:{id:s.id}),...data});
+      m.close(); toast(I18N.t('c4.sites.siteSaved'),'success'); load();
+    };
+  }
+
+  function openAssign(siteId){
+    const s=sites.find(x=>x.id===siteId);
+    const assigned=s.employeeIds||(window.MockDB?MockDB.siteEmployees:[]).filter(x=>x.siteId===siteId).map(x=>x.employeeId);
+    const m=modal(I18N.t('c4.sites.assignTitle').replace('{name}',s.name),`
+      <div class="max-h-80 overflow-y-auto space-y-1 mb-5">
+        ${emps.filter(e=>e.active).map(e=>`<label class="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-50 cursor-pointer">
+          <input type="checkbox" name="emp" value="${e.id}" ${assigned.includes(e.id)?'checked':''} class="w-4 h-4 rounded accent-slate-900">
+          <span class="w-8 h-8 rounded-full bg-slate-200 text-slate-500 text-[11px] font-bold inline-flex items-center justify-center shrink-0">${esc((String(e.name||'?').trim().split(/\s+/).map(w=>w[0]).join('')||'?').slice(0,2).toUpperCase())}</span>
+          <span class="text-sm font-medium text-slate-700">${esc(e.name)}</span><span class="text-xs text-slate-400 ml-auto">${esc(e.code)}</span></label>`).join('')}
+      </div>
+      <div class="flex justify-end gap-2"><button class="${btnS}" id="aCancel">${I18N.t('c4.common.cancel')}</button><button class="${vBtnB}" id="aSave">${I18N.t('c4.sites.saveAssignments')}</button></div>`);
+    m.el.querySelector('#aCancel').onclick=()=>m.close();
+    m.el.querySelector('#aSave').onclick=async()=>{
+      const ids=[...m.el.querySelectorAll('[name="emp"]:checked')].map(x=>x.value);
+      await API.call('assignSiteEmployees',siteId,ids);
+      m.close(); toast(I18N.t('c4.sites.assignedN').replace('{n}',ids.length),'success'); load();
+    };
+  }
+
+  const addB=document.getElementById(cid+'-add'); if(addB) addB.onclick=()=>openEditor(null);
+  await load();
+};
+})();
+
+
+/* ===== 60_shifts.js ===== */
+/* 60_shifts.js — shifts CRUD + roster grid by date. Verola premium styling. */
+(function(){
+'use strict';
+
+App.nav.push({group:'WORKFORCE', path:'#/shifts', label:I18N.t('c4.nav.shifts'), labelKey:'c4.nav.shifts', icon:'shifts', perm:'shifts'});
+
+/* Verola tokens (local) */
+const vBtnB='px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold shadow active:scale-[.98] transition';
+const vBtnSx='px-3 py-1.5 rounded-xl bg-white border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-xs font-semibold text-slate-600 active:scale-[.98] transition shadow-sm';
+const vCard='bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.04)] p-6';
+function vHead(title, sub, actions){
+  return `<div class="flex items-center gap-2 text-[13px] text-slate-400 mb-4 anim-fadeUp"><span class="text-base">⌂</span><a href="#/dashboard" class="hover:text-slate-600">${I18N.t('c4.nav.dashboard')}</a><span>›</span><span class="text-slate-700 font-semibold">${title}</span></div>
+  <div class="flex flex-wrap items-center justify-between gap-3 mb-5 anim-fadeUp"><div><h1 class="font-display text-[26px] font-bold text-slate-800 tracking-tight">${title}</h1><p class="text-sm text-slate-400 mt-1">${sub}</p></div><div class="flex gap-2 flex-wrap">${actions||''}</div></div>`;
+}
+function vAvatar(name){
+  const init=(String(name||'?').trim().split(/\s+/).map(w=>w[0]).join('')||'?').slice(0,2).toUpperCase();
+  return `<span class="w-8 h-8 rounded-full bg-slate-200 text-slate-500 text-[11px] font-bold inline-flex items-center justify-center shrink-0">${esc(init)}</span>`;
+}
+
+App.routes['#/shifts'] = async (el)=>{
+  const cid=uid('shift');
+  const canEdit=perm('shifts','edit');
+  el.innerHTML=vHead(I18N.t('c4.nav.shifts'),I18N.t('c4.shifts.sub'),
+    `${canEdit?`<button class="${vBtnB}" id="${cid}-add">${I18N.t('c4.shifts.addShift')}</button>`:''}`)+`
+  <div class="grid grid-cols-1 xl:grid-cols-3 gap-4">
+    <div class="${vCard}">
+      <h3 class="font-bold text-slate-800 text-[15px] mb-4">${I18N.t('c4.shifts.shiftTemplates')}</h3>
+      <div id="${cid}-shifts"></div>
+    </div>
+    <div class="xl:col-span-2 ${vCard}">
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <h3 class="font-bold text-slate-800 text-[15px]">${I18N.t('c4.shifts.dailyRoster')}</h3>
+        <div class="flex gap-2 items-center">
+          <input type="date" id="${cid}-date" value="${todayISO()}" class="bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-600 focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400 focus:outline-none">
+          ${canEdit?`<button class="${btnS}" id="${cid}-assign">${I18N.t('c4.shifts.assignBtn')}</button>`:''}
+        </div>
+      </div>
+      <div id="${cid}-roster"></div>
+    </div>
+  </div>`;
+  const shiftsEl=document.getElementById(cid+'-shifts');
+  const rosterEl=document.getElementById(cid+'-roster');
+  const dateEl=document.getElementById(cid+'-date');
+  let shifts=[], rosters=[], emps=[], sites=[];
+
+  async function loadShifts(){
+    shifts=await API.call('listShifts');
+    shiftsEl.innerHTML=shifts.map(s=>`
+      <div class="rounded-2xl border border-slate-200/70 p-4 mb-3 flex items-center gap-3 hover:border-slate-300 hover:shadow-sm transition bg-white">
+        <div class="w-11 h-11 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center shrink-0">${App.ICONS.shifts}</div>
+        <div class="flex-1 min-w-0"><div class="font-semibold text-slate-700 text-sm">${esc(s.name)}</div>
+          <div class="text-xs text-slate-400 tabular-nums mt-0.5">${esc(s.startTime)} – ${esc(s.endTime)} · ${I18N.t('c4.shifts.graceN').replace('{n}',s.graceMin)}</div></div>
+        ${canEdit?`<div class="flex gap-1"><button class="${vBtnSx}" data-se="${s.id}">${I18N.t('c4.common.edit')}</button><button class="${vBtnSx} !text-red-600" data-sd="${s.id}">✕</button></div>`:''}
+      </div>`).join('')||'<p class="text-sm text-slate-400 py-6 text-center">'+I18N.t('c4.shifts.emptyShifts')+'</p>';
+    shiftsEl.querySelectorAll('[data-se]').forEach(b=>b.onclick=()=>openShiftEditor(shifts.find(s=>s.id===b.dataset.se)));
+    shiftsEl.querySelectorAll('[data-sd]').forEach(b=>b.onclick=async()=>{
+      if(!await confirmDlg(I18N.t('c4.shifts.delShiftTitle'),I18N.t('c4.shifts.delShiftMsg'),I18N.t('c4.common.delete'))) return;
+      await API.call('deleteShift',b.dataset.sd); toast(I18N.t('c4.shifts.shiftDeleted'),'success'); loadShifts();
+    });
+  }
+  async function loadRoster(){
+    rosters=await API.call('listRosters',dateEl.value);
+    emps=await API.call('listEmployees');
+    sites=await API.call('listSites');
+    rosterEl.innerHTML=tableHTML([
+      {label:I18N.t('c4.common.employee'), get:r=>`<div class="flex items-center gap-3">${vAvatar(r.employeeName)}<span class="font-medium text-slate-700">${esc(r.employeeName||'—')}</span></div>`},
+      {label:I18N.t('c4.shifts.colShift'), get:r=>`<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-600 ring-1 ring-slate-200 whitespace-nowrap">${esc(r.shiftName||'—')}</span>`},
+      {label:I18N.t('c4.common.site'), get:r=>`<span class="text-slate-600">${esc(r.siteName||'—')}</span>`},
+      {label:'', get:r=>canEdit?`<div class="flex gap-1 justify-end"><button class="${vBtnSx} !text-red-600" data-rd="${r.id}">${I18N.t('c4.common.remove')}</button></div>`:''},
+    ], rosters, {empty:I18N.t('c4.shifts.emptyRoster')});
+    rosterEl.querySelectorAll('[data-rd]').forEach(b=>b.onclick=async()=>{
+      await API.call('deleteRoster',b.dataset.rd); toast(I18N.t('c4.shifts.removed'),'success'); loadRoster();
+    });
+  }
+  function openShiftEditor(s){
+    const isNew=!s; s=s||{name:'',startTime:'08:00',endTime:'17:00',graceMin:15};
+    const m=modal(isNew?I18N.t('c4.shifts.addShiftTitle'):I18N.t('c4.shifts.editShiftTitle'),`
+      <div class="grid grid-cols-2 gap-4">
+        <div class="col-span-2">${field(I18N.t('c4.shifts.fShiftName'),'name',{value:s.name,req:true})}</div>
+        ${field(I18N.t('c4.shifts.fStartTime'),'startTime',{value:s.startTime,type:'time',req:true})}
+        ${field(I18N.t('c4.shifts.fEndTime'),'endTime',{value:s.endTime,type:'time',req:true})}
+        <div class="col-span-2">${field(I18N.t('c4.shifts.fGrace'),'graceMin',{value:s.graceMin,type:'number',min:0})}</div>
+      </div>
+      <div class="flex justify-end gap-2 mt-6"><button class="${btnS}" id="sCancel">${I18N.t('c4.common.cancel')}</button><button class="${vBtnB}" id="sSave">${I18N.t('c4.shifts.saveShift')}</button></div>`);
+    m.el.querySelector('#sCancel').onclick=()=>m.close();
+    m.el.querySelector('#sSave').onclick=async()=>{
+      const data=collectForm(m.el);
+      if(!data.name){ toast(I18N.t('c4.emp.nameRequired'),'warn'); return; }
+      await API.call('saveShift',{...(isNew?{}:{id:s.id}),...data});
+      m.close(); toast(I18N.t('c4.shifts.shiftSaved'),'success'); loadShifts();
+    };
+  }
+  const addB=document.getElementById(cid+'-add'); if(addB) addB.onclick=()=>openShiftEditor(null);
+  dateEl.onchange=loadRoster;
+  const asB=document.getElementById(cid+'-assign');
+  if(asB) asB.onclick=()=>{
+    const m=modal(I18N.t('c4.shifts.assignRosterTitle').replace('{date}',fmtDate(dateEl.value)),`
+      <div class="grid grid-cols-1 gap-4 mb-4">
+        ${field(I18N.t('c4.common.employee'),'employeeId',{type:'select',options:emps.filter(e=>e.active).map(e=>({value:e.id,label:e.name+' ('+e.code+')'}))})}
+        ${field(I18N.t('c4.shifts.fShift'),'shiftId',{type:'select',options:shifts.map(s=>({value:s.id,label:s.name+' ('+s.startTime+'–'+s.endTime+')'}))})}
+        ${field(I18N.t('c4.common.site'),'siteId',{type:'select',options:[{value:'',label:I18N.t('c4.shifts.noSite')}].concat(sites.filter(s=>s.active).map(s=>({value:s.id,label:s.name})))})}
+      </div>
+      <div class="flex justify-end gap-2"><button class="${btnS}" id="rCancel">${I18N.t('c4.common.cancel')}</button><button class="${vBtnB}" id="rSave">${I18N.t('c4.shifts.assignBtn')}</button></div>`);
+    m.el.querySelector('#rCancel').onclick=()=>m.close();
+    m.el.querySelector('#rSave').onclick=async()=>{
+      await API.call('saveRoster',{date:dateEl.value,...collectForm(m.el)});
+      m.close(); toast(I18N.t('c4.shifts.rosterAssigned'),'success'); loadRoster();
+    };
+  };
+  await loadShifts(); await loadRoster();
+};
+})();
+
+
+/* ===== 70_attendance.js ===== */
+/* 70_attendance.js — attendance log with filters, live map, bulk-mark modal,
+   delete punch, corrections tab with approve/reject. (Verola premium style) */
+(function(){
+'use strict';
+
+App.nav.push({group:'MAIN', path:'#/attendance', label:I18N.t('c4.nav.attendance'), labelKey:'c4.nav.attendance', icon:'attendance', perm:'attendance'});
+
+/* ---------- Verola bits (shared style with payroll) ---------- */
+function vAvatar(name){
+  const init=(String(name||'?').trim().split(/\s+/).map(w=>w[0]).join('')||'?').slice(0,2).toUpperCase();
+  return `<span class="w-8 h-8 rounded-full bg-slate-200 text-slate-500 text-[11px] font-bold inline-flex items-center justify-center shrink-0">${esc(init)}</span>`;
+}
+function vCrumb(page){
+  return `<div class="flex items-center gap-2 text-[13px] text-slate-400 mb-4 anim-fadeUp">
+    <span class="text-base">⌂</span><a href="#/dashboard" class="hover:text-slate-600">${I18N.t('c4.nav.dashboard')}</a><span>›</span><span class="text-slate-700 font-semibold">${page}</span></div>`;
+}
+function vTabs(tab){
+  return `<div class="flex gap-2 mb-5 flex-wrap">${[['log',I18N.t('c4.att.tabLog')],['map',I18N.t('c4.att.tabMap')],['corrections',I18N.t('c4.att.tabCorrections')]].map(([k,l])=>
+    `<a href="#/attendance${k==='log'?'':'?tab='+k}" class="px-4 py-2 rounded-xl text-sm font-semibold transition ${tab===k?'bg-slate-900 text-white shadow':'bg-white text-slate-500 border border-slate-200 hover:border-slate-300'}">${l}</a>`).join('')}</div>`;
+}
+const V_BLACK='px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold shadow active:scale-[.98] transition';
+function vKpi(label, value, sub, ico){
+  return `<div class="bg-white rounded-2xl border border-slate-200/70 p-5 shadow-[0_1px_3px_rgba(15,23,42,.04)]">
+    <div class="flex items-center gap-2.5 mb-4">
+      <span class="w-9 h-9 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center shrink-0">${ico}</span>
+      <span class="text-[13px] text-slate-500 font-medium">${label}</span>
+    </div>
+    <div class="text-[26px] font-bold text-slate-900 tabular-nums tracking-tight">${value}</div>
+    ${sub?`<div class="text-xs text-slate-400 mt-1.5">${sub}</div>`:''}
+  </div>`;
+}
+function vPill(text, color, icon){
+  const c={emerald:'bg-emerald-50 text-emerald-700 ring-emerald-200',amber:'bg-amber-50 text-amber-700 ring-amber-200',red:'bg-red-50 text-red-600 ring-red-200',slate:'bg-slate-100 text-slate-500 ring-slate-200',teal:'bg-teal-50 text-teal-700 ring-teal-200',blue:'bg-blue-50 text-blue-700 ring-blue-200'}[color]||'bg-slate-100 text-slate-500 ring-slate-200';
+  return `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${c} ring-1 whitespace-nowrap">${icon?`<span class="text-[10px]">${icon}</span>`:''}${text}</span>`;
+}
+function vPaginate(pg, st, render){
+  const pages=Math.max(1,Math.ceil(st.total/st.per));
+  if(st.page>pages) st.page=pages;
+  const from=st.total?(st.page-1)*st.per+1:0, to=Math.min(st.total,st.page*st.per);
+  let nums=''; for(let p=1;p<=pages;p++){ if(p===1||p===pages||Math.abs(p-st.page)<=1) nums+=`<button data-pg="${p}" class="min-w-[32px] h-8 px-2 rounded-lg text-[13px] font-semibold ${p===st.page?'bg-slate-900 text-white':'text-slate-500 hover:bg-slate-100'}">${p}</button>`; else if(!nums.endsWith('…')) nums+='<span class="text-slate-300">…</span>'; }
+  pg.innerHTML=`
+    <button data-pgprev class="w-8 h-8 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40" ${st.page<=1?'disabled':''}>‹</button>${nums}
+    <button data-pgnext class="w-8 h-8 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40" ${st.page>=pages?'disabled':''}>›</button>
+    <span class="ml-auto text-xs text-slate-400">Showing ${from} to ${to} of ${st.total} entries</span>
+    <select data-per class="bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs font-medium text-slate-600">${[8,16,50].map(n=>`<option ${n===st.per?'selected':''}>${n}</option>`).join('')}</select>`;
+  if(!pg) return;
+  const bPrev=pg.querySelector('[data-pgprev]'); if(bPrev) bPrev.onclick=()=>{ if(st.page>1){st.page--;render();} };
+  const bNext=pg.querySelector('[data-pgnext]'); if(bNext) bNext.onclick=()=>{ if(st.page<pages){st.page++;render();} };
+  pg.querySelectorAll('[data-pg]').forEach(b=>b.onclick=()=>{ st.page=+b.dataset.pg; render(); });
+  const bPer=pg.querySelector('[data-per]'); if(bPer) bPer.onchange=e=>{ st.per=+e.target.value; st.page=1; render(); };
+}
+const V_TH='px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 whitespace-nowrap';
+
+App.routes['#/attendance'] = async (el, params)=>{
+  const cid=uid('att');
+  const tab=(params&&params.tab)||'log';
+  const canEdit=perm('attendance','edit');
+  el.innerHTML=vCrumb(I18N.t('c4.nav.attendance'))+vTabs(tab)+`<div id="${cid}-body"></div>`;
+  const body=document.getElementById(cid+'-body');
+
+  if(tab==='map'){
+    body.innerHTML=`<div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.04)] p-6 anim-fadeUp">
+      <div class="flex items-center justify-between mb-4"><h3 class="font-bold text-slate-800 text-[15px]">${I18N.t('c4.att.liveMapToday')}</h3>
+      <button class="${btnS}" id="${cid}-refresh">↻ ${I18N.t('c4.common.refresh')}</button></div>
+      <div id="${cid}-livemap" class="h-[480px] border border-slate-200/70 rounded-xl overflow-hidden"></div></div>`;
+    const draw=async()=>{
+      const mapEl=document.getElementById(cid+'-livemap'); if(!mapEl) return;
+      mapEl.innerHTML='';
+      const map=buildMap(mapEl,[31.5,74.35],11);
+      if(!map) return;
+      const pts=await API.call('getLiveMap');
+      (pts||[]).forEach(p=>{
+        const m=L.circleMarker([p.lat,p.lng],{radius:7,color:p.outOfZone?'#ef4444':'#0d9488',fillColor:p.outOfZone?'#ef4444':'#0d9488',fillOpacity:.9,weight:2})
+          .addTo(map).bindPopup(`<b>${esc(p.employeeName)}</b><br>${p.type==='in'?I18N.t('c4.common.checkedIn'):I18N.t('c4.common.checkedOut')} · ${esc(p.time)}<br>${esc(p.siteName)}${p.outOfZone?I18N.t('c4.att.oozPopup'):''}${p.selfie?I18N.t('c4.att.selfieAttached'):''}`);
+      });
+      const sites=await API.call('listSites');
+      (sites||[]).filter(s=>s.active).forEach(s=>{
+        L.circle([Number(s.lat),Number(s.lng)],{radius:Number(s.radiusM)||150,color:'#0ea5e9',weight:1.5,fillOpacity:.05}).addTo(map)
+          .bindPopup(`<b>${esc(s.name)}</b><br>${I18N.t('c4.common.geofenceN').replace('{n}',fmtNum(s.radiusM))}`);
+      });
+      setTimeout(()=>map.invalidateSize(),150);
+      const rf=document.getElementById(cid+'-refresh'); if(rf) rf.onclick=draw;
+    };
+    await draw();
+    return;
+  }
+
+  if(tab==='corrections'){
+    const rows=await API.call('listCorrections');
+    const st={page:1,per:8,total:rows.length};
+    body.innerHTML=`
+    <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.04)] overflow-hidden anim-fadeUp">
+      <div id="${cid}-tbl"></div>
+      <div id="${cid}-pg" class="flex flex-wrap items-center gap-2 px-4 py-3.5 border-t border-slate-100"></div>
+    </div>`;
+    const tbl=document.getElementById(cid+'-tbl'), pg=document.getElementById(cid+'-pg');
+    function render(){
+      const slice=rows.slice((st.page-1)*st.per, st.page*st.per);
+      tbl.innerHTML=`<div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="border-b border-slate-100">
+        ${[I18N.t('c4.common.employee'),I18N.t('c4.att.colPunch'),I18N.t('c4.att.colRequest'),I18N.t('c4.common.status')].map(h=>`<th class="${V_TH}">${h} <span class="text-slate-300">↕</span></th>`).join('')}
+        <th class="${V_TH} text-right">Actions</th></tr></thead>
+        <tbody class="divide-y divide-slate-50">${slice.length?slice.map(c=>`<tr class="hover:bg-slate-50/70 transition-colors">
+          <td class="px-4 py-3"><div class="flex items-center gap-2.5">${vAvatar(c.employeeName)}<span class="font-medium text-slate-700 whitespace-nowrap">${esc(c.employeeName)}</span></div></td>
+          <td class="px-4 py-3 text-slate-600 whitespace-nowrap tabular-nums">${esc(c.punchDate)} · ${c.punchType==='in'?I18N.t('c4.common.checkIn'):I18N.t('c4.common.checkOut')} ${esc(c.punchTime)}</td>
+          <td class="px-4 py-3"><span class="text-slate-500 text-[13px]">${esc(c.note)}</span></td>
+          <td class="px-4 py-3">${c.status==='pending'?vPill(I18N.t('c4.common.pending'),'amber','◷'):c.status==='approved'?vPill(I18N.t('c4.common.approved'),'emerald','✓'):vPill(I18N.t('c4.common.rejected'),'red','✕')}</td>
+          <td class="px-4 py-3 text-right">${c.status==='pending'&&canEdit?`<div class="flex gap-1.5 justify-end">
+            <button class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 hover:bg-emerald-100 transition" data-ok="${c.id}">${I18N.t('c4.common.approve')}</button>
+            <button class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-50 text-red-600 ring-1 ring-red-200 hover:bg-red-100 transition" data-no="${c.id}">${I18N.t('c4.common.reject')}</button></div>`
+            :`<span class="text-xs text-slate-400">${esc(c.decidedBy||'')}</span>`}</td>
+        </tr>`).join(''):`<tr><td colspan="5" class="px-4 py-14 text-center"><div class="text-slate-300 text-3xl mb-2">◌</div><div class="text-sm text-slate-400">${I18N.t('c4.att.emptyCorrections')}</div></td></tr>`}
+        </tbody></table></div>`;
+      vPaginate(pg, st, render);
+      tbl.querySelectorAll('[data-ok]').forEach(b=>b.onclick=async()=>{ await API.call('decideCorrection',b.dataset.ok,'approved'); toast(I18N.t('c4.att.correctionApproved'),'success'); App.route(); });
+      tbl.querySelectorAll('[data-no]').forEach(b=>b.onclick=async()=>{ await API.call('decideCorrection',b.dataset.no,'rejected'); toast(I18N.t('c4.att.correctionRejected'),'success'); App.route(); });
+    }
+    render();
+    return;
+  }
+
+  /* ---------- punch log ---------- */
+  const emps=await API.call('listEmployees').catch(()=>[]);
+  const sites=await API.call('listSites').catch(()=>[]);
+  const dash=await API.call('getDashboard').catch(()=>({}));
+  const k=dash.kpis||dash||{};
+  const icoP=App.ICONS&&App.ICONS.punch?App.ICONS.punch:'';
+  const icoE=App.ICONS&&App.ICONS.employees?App.ICONS.employees:'';
+  const icoS=App.ICONS&&App.ICONS.shifts?App.ICONS.shifts:'';
+  const icoL=App.ICONS&&App.ICONS.sites?App.ICONS.sites:'';
+
+  body.innerHTML=`
+  <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
+    <div class="inline-flex items-center gap-1 bg-slate-100 rounded-xl p-1" id="${cid}-range">
+      <button data-range="7" class="px-4 py-2 rounded-lg text-[13px] font-semibold bg-white shadow-sm text-slate-800 ring-1 ring-slate-200">7 Days</button>
+      <button data-range="30" class="px-4 py-2 rounded-lg text-[13px] font-semibold text-slate-400 hover:text-slate-600">30 Days</button>
+    </div>
+    <div class="flex gap-2">
+      <button class="${btnS}" id="${cid}-csv">⤓ ${I18N.t('c4.att.exportCsv')}</button>
+      ${canEdit?`<button class="${V_BLACK}" id="${cid}-bulk">+ ${I18N.t('c4.att.bulkMark')}</button>`:''}
+    </div>
+  </div>
+  <div class="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-5 anim-fadeUp">
+    ${vKpi(I18N.t('c4.dash.kpiPresent'), fmtNum(k.presentToday||0), I18N.t('c4.dash.kpiPresentSub'), icoP)}
+    ${vKpi(I18N.t('c4.dash.kpiAbsent'), fmtNum(k.absentToday||0), I18N.t('c4.dash.kpiAbsentSub'), icoE)}
+    ${vKpi(I18N.t('c4.dash.kpiLate'), fmtNum(k.lateToday||0), I18N.t('c4.dash.kpiLateSub'), icoS)}
+    ${vKpi(I18N.t('c4.dash.kpiOoz'), fmtNum(k.outOfZoneToday||0), I18N.t('c4.dash.kpiOozSub'), icoL)}
+  </div>
+  <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.04)] overflow-hidden">
+    <div class="flex flex-wrap items-end gap-2.5 p-4 border-b border-slate-100">
+      <div class="relative flex-1 min-w-[180px] max-w-xs">
+        <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">⌕</span>
+        <input id="${cid}-q" placeholder="Search..." class="w-full bg-white border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400 focus:outline-none">
+      </div>
+      <label class="block"><span class="block text-xs font-semibold text-slate-500 mb-1.5 tracking-wide">${I18N.t('c4.common.from')}</span><input type="date" name="from" value="${addDays(todayISO(),-7)}" class="bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-700 focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400 focus:outline-none"></label>
+      <label class="block"><span class="block text-xs font-semibold text-slate-500 mb-1.5 tracking-wide">${I18N.t('c4.common.to')}</span><input type="date" name="to" value="${todayISO()}" class="bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-700 focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400 focus:outline-none"></label>
+      <label class="block"><span class="block text-xs font-semibold text-slate-500 mb-1.5 tracking-wide">${I18N.t('c4.common.employee')}</span><select id="${cid}-fEmp" class="bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 focus:outline-none max-w-[180px]">
+        <option value="">${I18N.t('c4.att.allEmployees')}</option>${emps.filter(e=>e.active).map(e=>`<option value="${e.id}">${esc(e.name)}</option>`).join('')}
+      </select></label>
+      <label class="block"><span class="block text-xs font-semibold text-slate-500 mb-1.5 tracking-wide">${I18N.t('c4.common.site')}</span><select id="${cid}-fSite" class="bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 focus:outline-none max-w-[180px]">
+        <option value="">${I18N.t('c4.att.allSites')}</option>${sites.map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('')}
+      </select></label>
+      <label class="inline-flex items-center gap-2 text-[13px] cursor-pointer font-medium text-slate-600 bg-slate-50 border border-slate-200/70 rounded-xl px-3 py-2.5 mb-[1px]"><input type="checkbox" id="${cid}-ooz" class="w-4 h-4 rounded accent-slate-900">${I18N.t('c4.att.oozOnly')}</label>
+      <button class="${V_BLACK}" id="${cid}-go">${I18N.t('c4.common.apply')}</button>
+    </div>
+    <div id="${cid}-rows"></div>
+    <div id="${cid}-pg" class="flex flex-wrap items-center gap-2 px-4 py-3.5 border-t border-slate-100"></div>
+  </div>`;
+
+  const rowsEl=document.getElementById(cid+'-rows');
+  const pgEl=document.getElementById(cid+'-pg');
+  const st={q:'',page:1,per:8,total:0};
+  let allRows=[];
+  const fEmp=document.getElementById(cid+'-fEmp'), fSite=document.getElementById(cid+'-fSite');
+
+  function filtered(){
+    const q=st.q.trim().toLowerCase();
+    if(!q) return allRows;
+    return allRows.filter(p=>String(p.employeeName+' '+(p.employeeCode||'')).toLowerCase().includes(q));
+  }
+  function renderTable(){
+    const rows=filtered();
+    st.total=rows.length;
+    const slice=rows.slice((st.page-1)*st.per, st.page*st.per);
+    rowsEl.innerHTML=`<div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="border-b border-slate-100">
+      ${[I18N.t('c4.common.date'),I18N.t('c4.common.employee'),I18N.t('c4.att.colType'),I18N.t('c4.att.colTime'),I18N.t('c4.common.site'),I18N.t('c4.att.colDistance'),I18N.t('c4.att.colZone'),I18N.t('c4.att.colSource')].map((h,i)=>`<th class="${V_TH} ${i===5?'text-right':''}">${h} <span class="text-slate-300">↕</span></th>`).join('')}
+      <th class="${V_TH} text-right">Actions</th></tr></thead>
+      <tbody class="divide-y divide-slate-50">${slice.length?slice.map(p=>`<tr class="hover:bg-slate-50/70 transition-colors">
+        <td class="px-4 py-3 tabular-nums text-slate-600 whitespace-nowrap">${fmtDate(p.date)}</td>
+        <td class="px-4 py-3"><div class="flex items-center gap-2.5">${vAvatar(p.employeeName)}<div><div class="font-medium text-slate-700 whitespace-nowrap">${esc(p.employeeName)}</div><div class="text-[11px] text-slate-400">${esc(p.employeeCode||'')}</div></div></div></td>
+        <td class="px-4 py-3">${p.type==='in'?vPill(I18N.t('c4.common.checkIn'),'emerald','✓'):vPill(I18N.t('c4.common.checkOut'),'slate','◷')}</td>
+        <td class="px-4 py-3 tabular-nums font-semibold text-slate-700 whitespace-nowrap">${esc(p.time)}</td>
+        <td class="px-4 py-3 text-slate-600 whitespace-nowrap">${esc(p.siteName||'—')}</td>
+        <td class="px-4 py-3 text-right tabular-nums text-slate-600">${p.distanceM!=null?fmtNum(p.distanceM)+' m':'<span class="text-slate-300">—</span>'}</td>
+        <td class="px-4 py-3">${p.outOfZone?vPill(I18N.t('c4.common.outOfZone'),'red','!'):vPill(I18N.t('c4.common.inZone'),'teal','✓')}</td>
+        <td class="px-4 py-3 text-xs text-slate-400">${esc(p.source||'')}</td>
+        <td class="px-4 py-3 text-right"><div class="flex gap-1.5 justify-end">
+          ${p.selfie?`<button class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white border border-slate-200 text-slate-500 hover:border-slate-300 transition" data-img="${p.id}">${I18N.t('c4.att.selfieBtn')}</button>`:''}
+          ${canEdit?`<button class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white border border-slate-200 text-slate-500 hover:border-slate-300 transition" data-corr="${p.id}">${I18N.t('c4.att.requestFix')}</button>
+          <button class="w-8 h-8 rounded-lg border border-slate-200 text-slate-400 hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition font-bold" data-del="${p.id}">✕</button>`:''}</div></td>
+      </tr>`).join(''):`<tr><td colspan="9" class="px-4 py-14 text-center"><div class="text-slate-300 text-3xl mb-2">◌</div><div class="text-sm text-slate-400">${I18N.t('c4.att.emptyLog')}</div></td></tr>`}
+      </tbody></table></div>`;
+    vPaginate(pgEl, st, renderTable);
+    rowsEl.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{
+      if(!await confirmDlg(I18N.t('c4.att.delPunchTitle'),I18N.t('c4.emp.cannotUndo'),I18N.t('c4.common.delete'))) return;
+      await API.call('deletePunch',b.dataset.del); toast(I18N.t('c4.att.punchDeleted'),'success'); load();
+    });
+    rowsEl.querySelectorAll('[data-corr]').forEach(b=>b.onclick=()=>{
+      const m=modal(I18N.t('c4.att.reqCorrectionTitle'),`${field(I18N.t('c4.att.fWhatCorrected'),'note',{type:'textarea',ph:I18N.t('c4.att.phCorrection'),req:true})}
+        <div class="flex justify-end gap-2 mt-5"><button class="${btnS}" id="cCancel">${I18N.t('c4.common.cancel')}</button><button class="${V_BLACK}" id="cSend">${I18N.t('c4.att.sendRequest')}</button></div>`);
+      m.el.querySelector('#cCancel').onclick=()=>m.close();
+      m.el.querySelector('#cSend').onclick=async()=>{
+        const note=formVal(m.el,'note'); if(!note){toast(I18N.t('c4.att.describeCorrection'),'warn');return;}
+        await API.call('requestCorrection',b.dataset.corr,note); m.close(); toast(I18N.t('c4.att.correctionRequested'),'success');
+      };
+    });
+    rowsEl.querySelectorAll('[data-img]').forEach(b=>b.onclick=async()=>{
+      const p=allRows.find(x=>x.id===b.dataset.img);
+      if(p&&p.selfie) modal(I18N.t('c4.att.selfieTitle').replace('{name}',p.employeeName),`<img src="${p.selfie}" class="rounded-2xl w-full" alt="selfie"><p class="text-xs text-slate-400 mt-3">${fmtDate(p.date)} · ${esc(p.time)} · ${esc(p.siteName||'')}</p>`);
+      else toast(I18N.t('c4.att.noSelfie'),'warn');
+    });
+  }
+  async function load(){
+    const f={
+      from:formVal(body,'from'), to:formVal(body,'to'),
+      employeeId:fEmp.value, siteId:fSite.value,
+      outOfZone:document.getElementById(cid+'-ooz').checked||'',
+    };
+    allRows=await API.call('listAttendance',f);
+    st.page=1; renderTable();
+  }
+  const qIn=document.getElementById(cid+'-q');
+  qIn.oninput=debounce(()=>{ st.q=qIn.value; st.page=1; renderTable(); },300);
+  const goBtn=document.getElementById(cid+'-go'); if(goBtn) goBtn.onclick=load;
+  fEmp.onchange=load;
+  fSite.onchange=load;
+  const csvBtn=document.getElementById(cid+'-csv'); if(csvBtn) csvBtn.onclick=async()=>{
+    const r=await API.call('exportCSV','attendance',{from:formVal(body,'from'),to:formVal(body,'to')});
+    downloadCSV(r.filename,r.csv); toast(I18N.t('c4.att.csvDownloaded'),'success');
+  };
+  body.querySelectorAll('#'+cid+'-range [data-range]').forEach(b=>b.onclick=()=>{
+    body.querySelectorAll('#'+cid+'-range [data-range]').forEach(x=>x.className='px-4 py-2 rounded-lg text-[13px] font-semibold text-slate-400 hover:text-slate-600');
+    b.className='px-4 py-2 rounded-lg text-[13px] font-semibold bg-white shadow-sm text-slate-800 ring-1 ring-slate-200';
+    const n=+b.dataset.range;
+    body.querySelector('[name="to"]').value=todayISO();
+    body.querySelector('[name="from"]').value=addDays(todayISO(),-n);
+    load();
+  });
+  await load();
+
+  const bulkB=document.getElementById(cid+'-bulk');
+  if(bulkB) bulkB.onclick=async()=>{
+    const m=modal(I18N.t('c4.att.bulkTitle'),`
+      <div class="grid grid-cols-2 gap-4 mb-4">
+        ${field(I18N.t('c4.common.date'),'date',{type:'date',value:todayISO(),req:true})}
+        ${field(I18N.t('c4.att.fType'),'type',{type:'select',options:[{value:'in',label:I18N.t('c4.common.checkIn')},{value:'out',label:I18N.t('c4.common.checkOut')}]})}
+      </div>
+      ${field(I18N.t('c4.att.fNote'),'note',{ph:I18N.t('c4.att.phNote')})}
+      <div class="max-h-64 overflow-y-auto border border-slate-200/70 rounded-2xl mt-4 mb-4 divide-y divide-slate-50">
+        ${emps.filter(e=>e.active).map(e=>`<label class="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 cursor-pointer">
+          <input type="checkbox" name="bemp" value="${e.id}" class="w-4 h-4 rounded accent-slate-900">
+          <span class="text-sm font-medium text-slate-700">${esc(e.name)}</span><span class="text-xs text-slate-400 ml-auto">${esc(e.code)}</span></label>`).join('')}
+      </div>
+      <div class="flex justify-end gap-2"><button class="${btnS}" id="bCancel">${I18N.t('c4.common.cancel')}</button><button class="${V_BLACK}" id="bGo">${I18N.t('c4.att.markSelected')}</button></div>`);
+    m.el.querySelector('#bCancel').onclick=()=>m.close();
+    m.el.querySelector('#bGo').onclick=async()=>{
+      const ids=[...m.el.querySelectorAll('[name="bemp"]:checked')].map(x=>x.value);
+      if(!ids.length){ toast(I18N.t('c4.att.selectOne'),'warn'); return; }
+      const r=await API.call('bulkMark',formVal(m.el,'date'),ids,formVal(m.el,'type'),formVal(m.el,'note'));
+      m.close(); toast(I18N.t('c4.att.markedN').replace('{n}',r.count),'success'); load();
+    };
+  };
+};
+})();
+
+
+/* ===== 80_leave.js ===== */
+/* 80_leave.js — leave types, balances, requests approve/reject, holidays.
+   (Verola premium style) */
+(function(){
+'use strict';
+
+App.nav.push({group:'PEOPLE', path:'#/leave', label:I18N.t('c4.nav.leave'), labelKey:'c4.nav.leave', icon:'leave', perm:'leave'});
+
+/* ---------- Verola bits (shared style with payroll) ---------- */
+function vAvatar(name){
+  const init=(String(name||'?').trim().split(/\s+/).map(w=>w[0]).join('')||'?').slice(0,2).toUpperCase();
+  return `<span class="w-8 h-8 rounded-full bg-slate-200 text-slate-500 text-[11px] font-bold inline-flex items-center justify-center shrink-0">${esc(init)}</span>`;
+}
+function vCrumb(page){
+  return `<div class="flex items-center gap-2 text-[13px] text-slate-400 mb-4 anim-fadeUp">
+    <span class="text-base">⌂</span><a href="#/dashboard" class="hover:text-slate-600">${I18N.t('c4.nav.dashboard')}</a><span>›</span><span class="text-slate-700 font-semibold">${page}</span></div>`;
+}
+function vTabs(tab){
+  return `<div class="flex gap-2 flex-wrap">${[['requests',I18N.t('c4.leave.tabRequests')],['balances',I18N.t('c4.leave.tabBalances')],['types',I18N.t('c4.leave.tabTypes')],['holidays',I18N.t('c4.leave.tabHolidays')]].map(([k,l])=>
+    `<a href="#/leave${k==='requests'?'':'?tab='+k}" class="px-4 py-2 rounded-xl text-sm font-semibold transition ${tab===k?'bg-slate-900 text-white shadow':'bg-white text-slate-500 border border-slate-200 hover:border-slate-300'}">${l}</a>`).join('')}</div>`;
+}
+const V_BLACK='px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold shadow active:scale-[.98] transition';
+function vKpi(label, value, sub, ico){
+  return `<div class="bg-white rounded-2xl border border-slate-200/70 p-5 shadow-[0_1px_3px_rgba(15,23,42,.04)]">
+    <div class="flex items-center gap-2.5 mb-4">
+      <span class="w-9 h-9 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center shrink-0">${ico}</span>
+      <span class="text-[13px] text-slate-500 font-medium">${label}</span>
+    </div>
+    <div class="text-[26px] font-bold text-slate-900 tabular-nums tracking-tight">${value}</div>
+    ${sub?`<div class="text-xs text-slate-400 mt-1.5">${sub}</div>`:''}
+  </div>`;
+}
+function vPill(text, color, icon){
+  const c={emerald:'bg-emerald-50 text-emerald-700 ring-emerald-200',amber:'bg-amber-50 text-amber-700 ring-amber-200',red:'bg-red-50 text-red-600 ring-red-200',slate:'bg-slate-100 text-slate-500 ring-slate-200',teal:'bg-teal-50 text-teal-700 ring-teal-200',blue:'bg-blue-50 text-blue-700 ring-blue-200'}[color]||'bg-slate-100 text-slate-500 ring-slate-200';
+  return `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${c} ring-1 whitespace-nowrap">${icon?`<span class="text-[10px]">${icon}</span>`:''}${text}</span>`;
+}
+function vPaginate(pg, st, render){
+  const pages=Math.max(1,Math.ceil(st.total/st.per));
+  if(st.page>pages) st.page=pages;
+  const from=st.total?(st.page-1)*st.per+1:0, to=Math.min(st.total,st.page*st.per);
+  let nums=''; for(let p=1;p<=pages;p++){ if(p===1||p===pages||Math.abs(p-st.page)<=1) nums+=`<button data-pg="${p}" class="min-w-[32px] h-8 px-2 rounded-lg text-[13px] font-semibold ${p===st.page?'bg-slate-900 text-white':'text-slate-500 hover:bg-slate-100'}">${p}</button>`; else if(!nums.endsWith('…')) nums+='<span class="text-slate-300">…</span>'; }
+  pg.innerHTML=`
+    <button data-pgprev class="w-8 h-8 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40" ${st.page<=1?'disabled':''}>‹</button>${nums}
+    <button data-pgnext class="w-8 h-8 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40" ${st.page>=pages?'disabled':''}>›</button>
+    <span class="ml-auto text-xs text-slate-400">Showing ${from} to ${to} of ${st.total} entries</span>
+    <select data-per class="bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs font-medium text-slate-600">${[8,16,50].map(n=>`<option ${n===st.per?'selected':''}>${n}</option>`).join('')}</select>`;
+  if(!pg) return;
+  const bPrev=pg.querySelector('[data-pgprev]'); if(bPrev) bPrev.onclick=()=>{ if(st.page>1){st.page--;render();} };
+  const bNext=pg.querySelector('[data-pgnext]'); if(bNext) bNext.onclick=()=>{ if(st.page<pages){st.page++;render();} };
+  pg.querySelectorAll('[data-pg]').forEach(b=>b.onclick=()=>{ st.page=+b.dataset.pg; render(); });
+  const bPer=pg.querySelector('[data-per]'); if(bPer) bPer.onchange=e=>{ st.per=+e.target.value; st.page=1; render(); };
+}
+const V_TH='px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 whitespace-nowrap';
+const V_CARD='bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.04)] overflow-hidden anim-fadeUp';
+
+App.routes['#/leave'] = async (el, params)=>{
+  const cid=uid('leave');
+  const tab=(params&&params.tab)||'requests';
+  const canEdit=perm('leave','edit');
+  const emps=await API.call('listEmployees').catch(()=>[]);
+  const types=await API.call('listLeaveTypes').catch(()=>[]);
+
+  el.innerHTML=vCrumb(I18N.t('c4.nav.leave'))+`
+  <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
+    ${vTabs(tab)}
+    <div class="flex gap-2 flex-wrap">
+      ${canEdit?`<button class="${btnS}" id="${cid}-holiday">+ ${I18N.t('c4.leave.addHoliday')}</button><button class="${btnS}" id="${cid}-type">+ ${I18N.t('c4.leave.addLeaveType')}</button>`:''}
+      <button class="${V_BLACK}" id="${cid}-req">+ ${I18N.t('c4.leave.requestLeave')}</button>
+    </div>
+  </div>
+  <div id="${cid}-body"></div>`;
+  const body=document.getElementById(cid+'-body');
+
+  if(tab==='types'){
+    body.innerHTML=`<div class="${V_CARD}"><div id="${cid}-tbl"></div></div>
+      <div class="flex justify-end mt-4">${canEdit?`<button class="${btnS}" id="${cid}-addT">+ ${I18N.t('c4.leave.addLeaveType')}</button>`:''}</div>`;
+    const tbl=document.getElementById(cid+'-tbl');
+    tbl.innerHTML=`<div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="border-b border-slate-100">
+      ${[I18N.t('c4.leave.colType'),I18N.t('c4.leave.colQuota'),I18N.t('c4.leave.colPaid')].map((h,i)=>`<th class="${V_TH} ${i===1?'text-right':''}">${h} <span class="text-slate-300">↕</span></th>`).join('')}
+      <th class="${V_TH} text-right">Actions</th></tr></thead>
+      <tbody class="divide-y divide-slate-50">${types.length?types.map(t=>`<tr class="hover:bg-slate-50/70 transition-colors">
+        <td class="px-4 py-3"><span class="font-semibold text-slate-700">${esc(t.name)}</span></td>
+        <td class="px-4 py-3 text-right tabular-nums text-slate-600">${t.quota?I18N.t('c4.leave.daysN').replace('{n}',fmtNum(t.quota)):'—'}</td>
+        <td class="px-4 py-3">${t.paid?vPill(I18N.t('c4.common.paid'),'emerald','✓'):vPill(I18N.t('c4.common.unpaid'),'slate','')}</td>
+        <td class="px-4 py-3 text-right">${canEdit?`<div class="flex gap-1.5 justify-end">
+          <button class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white border border-slate-200 text-slate-500 hover:border-slate-300 transition" data-te="${t.id}">${I18N.t('c4.common.edit')}</button>
+          <button class="w-8 h-8 rounded-lg border border-slate-200 text-slate-400 hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition font-bold" data-td="${t.id}">✕</button></div>`:''}</td>
+      </tr>`).join(''):`<tr><td colspan="4" class="px-4 py-14 text-center"><div class="text-slate-300 text-3xl mb-2">◌</div><div class="text-sm text-slate-400">${I18N.t('c4.leave.emptyTypes')}</div></td></tr>`}
+      </tbody></table></div>`;
+    tbl.querySelectorAll('[data-te]').forEach(b=>b.onclick=()=>typeEditor(types.find(t=>t.id===b.dataset.te)));
+    tbl.querySelectorAll('[data-td]').forEach(b=>b.onclick=async()=>{
+      if(!await confirmDlg(I18N.t('c4.leave.delTypeTitle'),I18N.t('c4.leave.delTypeMsg'),I18N.t('c4.common.delete'))) return;
+      await API.call('deleteLeaveType',b.dataset.td); toast(I18N.t('c4.emp.deleted'),'success'); App.route();
+    });
+    const tb=document.getElementById(cid+'-type'); if(tb) tb.onclick=()=>typeEditor(null);
+    const addT=document.getElementById(cid+'-addT'); if(addT) addT.onclick=()=>typeEditor(null);
+  }
+  else if(tab==='balances'){
+    const rows=await API.call('getLeaveBalances',new Date().getFullYear());
+    body.innerHTML=`<div class="${V_CARD}"><div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="border-b border-slate-100">
+      <th class="${V_TH}">${I18N.t('c4.common.employee')} <span class="text-slate-300">↕</span></th>
+      ${types.map(t=>`<th class="${V_TH} text-center">${esc(t.name)}</th>`).join('')}</tr></thead>
+      <tbody class="divide-y divide-slate-50">${rows.length?rows.map(r=>`<tr class="hover:bg-slate-50/70 transition-colors">
+        <td class="px-4 py-3"><div class="flex items-center gap-2.5">${vAvatar(r.employeeName)}<div><div class="font-medium text-slate-700 whitespace-nowrap">${esc(r.employeeName)}</div><div class="text-[11px] text-slate-400">${esc(r.employeeCode)}</div></div></div></td>
+        ${types.map(t=>{ const x=(r.types||[]).find(y=>y.typeId===t.id)||{used:0,quota:t.quota,left:t.quota};
+          const pct=t.quota?Math.min(100,Math.round((x.used||0)/t.quota*100)):0;
+          return `<td class="px-4 py-3"><div class="text-center">
+            <div class="text-sm font-semibold tabular-nums ${x.left<=2&&x.quota?'text-amber-600':'text-slate-700'}">${x.left}<span class="text-slate-400 font-normal">/${x.quota||'∞'}</span></div>
+            <div class="w-20 h-1.5 bg-slate-100 rounded-full mx-auto mt-1.5 overflow-hidden"><div class="h-full rounded-full ${pct>80?'bg-red-400':pct>50?'bg-amber-400':'bg-emerald-400'}" style="width:${pct}%"></div></div>
+            <div class="text-[10px] text-slate-400 mt-1">${I18N.t('c4.leave.leftWord')}</div></div></td>`; }).join('')}
+      </tr>`).join(''):`<tr><td colspan="${1+types.length}" class="px-4 py-14 text-center"><div class="text-slate-300 text-3xl mb-2">◌</div><div class="text-sm text-slate-400">${I18N.t('c4.leave.emptyBalances')}</div></td></tr>`}
+      </tbody></table></div></div>`;
+  }
+  else if(tab==='holidays'){
+    const rows=await API.call('listHolidays');
+    body.innerHTML=`<div class="${V_CARD}"><div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="border-b border-slate-100">
+      <th class="${V_TH}">${I18N.t('c4.common.date')} <span class="text-slate-300">↕</span></th>
+      <th class="${V_TH}">${I18N.t('c4.leave.colHoliday')} <span class="text-slate-300">↕</span></th>
+      <th class="${V_TH} text-right">Actions</th></tr></thead>
+      <tbody class="divide-y divide-slate-50">${rows.length?rows.map(h=>`<tr class="hover:bg-slate-50/70 transition-colors">
+        <td class="px-4 py-3"><span class="inline-flex items-center gap-2 tabular-nums font-semibold text-slate-700 bg-slate-50 border border-slate-200/70 rounded-lg px-2.5 py-1">${fmtDate(h.date)}</span></td>
+        <td class="px-4 py-3"><span class="font-medium text-slate-700">${esc(h.name)}</span></td>
+        <td class="px-4 py-3 text-right">${canEdit?`<button class="w-8 h-8 rounded-lg border border-slate-200 text-slate-400 hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition font-bold" data-hd="${h.id}">✕</button>`:''}</td>
+      </tr>`).join(''):`<tr><td colspan="3" class="px-4 py-14 text-center"><div class="text-slate-300 text-3xl mb-2">◌</div><div class="text-sm text-slate-400">${I18N.t('c4.leave.emptyHolidays')}</div></td></tr>`}
+      </tbody></table></div></div>`;
+    body.querySelectorAll('[data-hd]').forEach(b=>b.onclick=async()=>{
+      await API.call('deleteHoliday',b.dataset.hd); toast(I18N.t('c4.leave.holidayRemoved'),'success'); App.route();
+    });
+    const hb=document.getElementById(cid+'-holiday');
+    if(hb) hb.onclick=()=>{
+      const m=modal(I18N.t('c4.leave.addHolidayTitle'),`${field(I18N.t('c4.common.date'),'date',{type:'date',value:todayISO(),req:true})}${field(I18N.t('c4.common.name'),'name',{req:true,ph:I18N.t('c4.leave.phHoliday')})}
+        <div class="flex justify-end gap-2 mt-5"><button class="${btnS}" id="hCancel">${I18N.t('c4.common.cancel')}</button><button class="${V_BLACK}" id="hSave">${I18N.t('c4.common.save')}</button></div>`);
+      m.el.querySelector('#hCancel').onclick=()=>m.close();
+      m.el.querySelector('#hSave').onclick=async()=>{
+        if(!formVal(m.el,'date')||!formVal(m.el,'name')){toast(I18N.t('c4.leave.dateNameRequired'),'warn');return;}
+        await API.call('saveHoliday',collectForm(m.el)); m.close(); toast(I18N.t('c4.leave.holidayAdded'),'success'); App.route();
+      };
+    };
+  }
+  else{
+    /* ---------- requests (Verola dashboard) ---------- */
+    const rows=await API.call('listLeaveRequests');
+    const today=todayISO();
+    const mStart=today.slice(0,7);
+    const pendingN=rows.filter(r=>r.status==='pending').length;
+    const apprMonth=rows.filter(r=>r.status==='approved'&&String(r.from||'').slice(0,7)===mStart).length;
+    const onLeave=rows.filter(r=>r.status==='approved'&&r.from<=today&&r.to>=today).length;
+    const icoL=App.ICONS&&App.ICONS.leave?App.ICONS.leave:'';
+    const icoE=App.ICONS&&App.ICONS.employees?App.ICONS.employees:'';
+    const icoS=App.ICONS&&App.ICONS.shifts?App.ICONS.shifts:'';
+    const st={q:'',type:'all',status:'all',page:1,per:8,total:0};
+    body.innerHTML=`
+    <div class="grid grid-cols-2 xl:grid-cols-3 gap-4 mb-5 anim-fadeUp">
+      ${vKpi(I18N.t('c4.leave.kpiPending'), fmtNum(pendingN), I18N.t('c4.leave.kpiPendingSub'), icoL)}
+      ${vKpi(I18N.t('c4.leave.kpiApprovedMonth'), fmtNum(apprMonth), I18N.t('c4.leave.kpiApprovedMonthSub'), icoS)}
+      ${vKpi(I18N.t('c4.leave.kpiOnLeave'), fmtNum(onLeave), I18N.t('c4.leave.kpiOnLeaveSub'), icoE)}
+    </div>
+    <div class="${V_CARD}">
+      <div class="flex flex-wrap items-center gap-2.5 p-4 border-b border-slate-100">
+        <div class="relative flex-1 min-w-[180px] max-w-xs">
+          <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">⌕</span>
+          <input id="${cid}-q" placeholder="Search..." class="w-full bg-white border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400 focus:outline-none">
+        </div>
+        <select id="${cid}-fType" class="bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 focus:outline-none">
+          <option value="all">▤ ${I18N.t('c4.leave.colType')}</option>${types.map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join('')}
+        </select>
+        <select id="${cid}-fStatus" class="bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 focus:outline-none">
+          <option value="all">▽ ${I18N.t('c4.common.status')}</option>
+          <option value="pending">${I18N.t('c4.common.pending')}</option>
+          <option value="approved">${I18N.t('c4.common.approved')}</option>
+          <option value="rejected">${I18N.t('c4.common.rejected')}</option>
+        </select>
+      </div>
+      <div id="${cid}-tbl"></div>
+      <div id="${cid}-pg" class="flex flex-wrap items-center gap-2 px-4 py-3.5 border-t border-slate-100"></div>
+    </div>`;
+    const tbl=document.getElementById(cid+'-tbl'), pg=document.getElementById(cid+'-pg');
+    function filtered(){
+      const q=st.q.trim().toLowerCase();
+      return rows.filter(r=>{
+        if(q&&!(String(r.employeeName).toLowerCase().includes(q))) return false;
+        if(st.type!=='all'&&String(r.typeId)!==st.type) return false;
+        if(st.status!=='all'&&r.status!==st.status) return false;
+        return true;
+      });
+    }
+    function render(){
+      const fr=filtered(); st.total=fr.length;
+      const slice=fr.slice((st.page-1)*st.per, st.page*st.per);
+      tbl.innerHTML=`<div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="border-b border-slate-100">
+        ${[I18N.t('c4.common.employee'),I18N.t('c4.leave.colType'),I18N.t('c4.common.from'),I18N.t('c4.common.to'),I18N.t('c4.leave.colDays'),I18N.t('c4.common.reason'),I18N.t('c4.common.status')].map((h,i)=>`<th class="${V_TH} ${i===4?'text-right':''}">${h} <span class="text-slate-300">↕</span></th>`).join('')}
+        <th class="${V_TH} text-right">Actions</th></tr></thead>
+        <tbody class="divide-y divide-slate-50">${slice.length?slice.map(r=>`<tr class="hover:bg-slate-50/70 transition-colors">
+          <td class="px-4 py-3"><div class="flex items-center gap-2.5">${vAvatar(r.employeeName)}<span class="font-medium text-slate-700 whitespace-nowrap">${esc(r.employeeName)}</span></div></td>
+          <td class="px-4 py-3"><span class="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-100 text-slate-600 whitespace-nowrap">${esc(r.typeName)}</span></td>
+          <td class="px-4 py-3 tabular-nums text-slate-600 whitespace-nowrap">${fmtDate(r.from)}</td>
+          <td class="px-4 py-3 tabular-nums text-slate-600 whitespace-nowrap">${fmtDate(r.to)}</td>
+          <td class="px-4 py-3 text-right tabular-nums font-semibold text-slate-700">${fmtNum(r.days)}</td>
+          <td class="px-4 py-3"><span class="text-slate-500 text-[13px] line-clamp-2 max-w-[220px]">${esc(r.reason||'—')}</span></td>
+          <td class="px-4 py-3">${r.status==='pending'?vPill(I18N.t('c4.common.pending'),'amber','◷'):r.status==='approved'?vPill(I18N.t('c4.common.approved'),'emerald','✓'):vPill(I18N.t('c4.common.rejected'),'red','✕')}</td>
+          <td class="px-4 py-3 text-right">${r.status==='pending'&&canEdit?`<div class="flex gap-1.5 justify-end">
+            <button class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 hover:bg-emerald-100 transition" data-ok="${r.id}">${I18N.t('c4.common.approve')}</button>
+            <button class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-50 text-red-600 ring-1 ring-red-200 hover:bg-red-100 transition" data-no="${r.id}">${I18N.t('c4.common.reject')}</button></div>`
+            :`<span class="text-xs text-slate-400">${esc(r.decidedBy||'')}</span>`}</td>
+        </tr>`).join(''):`<tr><td colspan="8" class="px-4 py-14 text-center"><div class="text-slate-300 text-3xl mb-2">◌</div><div class="text-sm text-slate-400">${I18N.t('c4.leave.emptyRequests')}</div></td></tr>`}
+        </tbody></table></div>`;
+      vPaginate(pg, st, render);
+      tbl.querySelectorAll('[data-ok]').forEach(b=>b.onclick=async()=>{ await API.call('decideLeave',b.dataset.ok,'approved'); toast(I18N.t('c4.leave.leaveApproved'),'success'); App.route(); });
+      tbl.querySelectorAll('[data-no]').forEach(b=>b.onclick=async()=>{ await API.call('decideLeave',b.dataset.no,'rejected'); toast(I18N.t('c4.leave.leaveRejected'),'success'); App.route(); });
+    }
+    const qIn=document.getElementById(cid+'-q');
+    qIn.oninput=debounce(()=>{ st.q=qIn.value; st.page=1; render(); },300);
+    document.getElementById(cid+'-fType').onchange=e=>{ st.type=e.target.value; st.page=1; render(); };
+    document.getElementById(cid+'-fStatus').onchange=e=>{ st.status=e.target.value; st.page=1; render(); };
+    render();
+  }
+
+  function typeEditor(t){
+    const isNew=!t; t=t||{name:'',quota:0,paid:true};
+    const m=modal(isNew?I18N.t('c4.leave.addTypeTitle'):I18N.t('c4.leave.editTypeTitle'),`
+      ${field(I18N.t('c4.leave.fTypeName'),'name',{value:t.name,req:true})}
+      <div class="grid grid-cols-2 gap-4 mt-4">
+        ${field(I18N.t('c4.leave.fQuota'),'quota',{value:t.quota,type:'number',min:0})}
+        <div class="flex items-end pb-2.5">${field(I18N.t('c4.leave.fPaidLeave'),'paid',{type:'checkbox',value:t.paid})}</div>
+      </div>
+      <div class="flex justify-end gap-2 mt-6"><button class="${btnS}" id="tCancel">${I18N.t('c4.common.cancel')}</button><button class="${V_BLACK}" id="tSave">${I18N.t('c4.common.save')}</button></div>`);
+    m.el.querySelector('#tCancel').onclick=()=>m.close();
+    m.el.querySelector('#tSave').onclick=async()=>{
+      const data=collectForm(m.el); if(!data.name){toast(I18N.t('c4.emp.nameRequired'),'warn');return;}
+      await API.call('saveLeaveType',{...(isNew?{}:{id:t.id}),...data}); m.close(); toast(I18N.t('c4.leave.typeSaved'),'success'); App.route();
+    };
+  }
+
+  const reqBtn=document.getElementById(cid+'-req'); if(reqBtn) reqBtn.onclick=()=>{
+    const m=modal(I18N.t('c4.leave.reqLeaveTitle'),`
+      <div class="grid grid-cols-2 gap-4">
+        ${field(I18N.t('c4.common.employee'),'employeeId',{type:'select',options:emps.filter(e=>e.active).map(e=>({value:e.id,label:e.name}))})}
+        ${field(I18N.t('c4.leave.fLeaveType'),'typeId',{type:'select',options:types.map(t=>({value:t.id,label:t.name+' '+I18N.t('c4.leave.quotaYr').replace('{n}',t.quota)}))})}
+        ${field(I18N.t('c4.common.from'),'from',{type:'date',value:todayISO(),req:true})}
+        ${field(I18N.t('c4.common.to'),'to',{type:'date',value:todayISO(),req:true})}
+        <div class="col-span-2">${field(I18N.t('c4.common.reason'),'reason',{type:'textarea',ph:I18N.t('c4.leave.phReason')})}</div>
+      </div>
+      <div class="flex justify-end gap-2 mt-6"><button class="${btnS}" id="lCancel">${I18N.t('c4.common.cancel')}</button><button class="${V_BLACK}" id="lSend">${I18N.t('c4.leave.submitRequest')}</button></div>`);
+    m.el.querySelector('#lCancel').onclick=()=>m.close();
+    m.el.querySelector('#lSend').onclick=async()=>{
+      const d=collectForm(m.el);
+      if(!d.from||!d.to){toast(I18N.t('c4.leave.datesRequired'),'warn');return;}
+      await API.call('requestLeave',d.employeeId,d.typeId,d.from,d.to,d.reason);
+      m.close(); toast(I18N.t('c4.leave.leaveSubmitted'),'success'); App.route();
+    };
+  };
+};
+})();
+
+
+/* ===== 90_overtime.js ===== */
+/* 90_overtime.js — overtime request list with approve/revoke.
+   (Verola premium style) */
+(function(){
+'use strict';
+
+App.nav.push({group:'PEOPLE', path:'#/overtime', label:I18N.t('c4.nav.overtime'), labelKey:'c4.nav.overtime', icon:'overtime', perm:'overtime'});
+
+/* ---------- Verola bits (shared style with payroll) ---------- */
+function vAvatar(name){
+  const init=(String(name||'?').trim().split(/\s+/).map(w=>w[0]).join('')||'?').slice(0,2).toUpperCase();
+  return `<span class="w-8 h-8 rounded-full bg-slate-200 text-slate-500 text-[11px] font-bold inline-flex items-center justify-center shrink-0">${esc(init)}</span>`;
+}
+function vCrumb(page){
+  return `<div class="flex items-center gap-2 text-[13px] text-slate-400 mb-4 anim-fadeUp">
+    <span class="text-base">⌂</span><a href="#/dashboard" class="hover:text-slate-600">${I18N.t('c4.nav.dashboard')}</a><span>›</span><span class="text-slate-700 font-semibold">${page}</span></div>`;
+}
+const V_BLACK='px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold shadow active:scale-[.98] transition';
+function vKpi(label, value, sub, ico){
+  return `<div class="bg-white rounded-2xl border border-slate-200/70 p-5 shadow-[0_1px_3px_rgba(15,23,42,.04)]">
+    <div class="flex items-center gap-2.5 mb-4">
+      <span class="w-9 h-9 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center shrink-0">${ico}</span>
+      <span class="text-[13px] text-slate-500 font-medium">${label}</span>
+    </div>
+    <div class="text-[26px] font-bold text-slate-900 tabular-nums tracking-tight">${value}</div>
+    ${sub?`<div class="text-xs text-slate-400 mt-1.5">${sub}</div>`:''}
+  </div>`;
+}
+function vPill(text, color, icon){
+  const c={emerald:'bg-emerald-50 text-emerald-700 ring-emerald-200',amber:'bg-amber-50 text-amber-700 ring-amber-200',red:'bg-red-50 text-red-600 ring-red-200',slate:'bg-slate-100 text-slate-500 ring-slate-200',teal:'bg-teal-50 text-teal-700 ring-teal-200',blue:'bg-blue-50 text-blue-700 ring-blue-200'}[color]||'bg-slate-100 text-slate-500 ring-slate-200';
+  return `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${c} ring-1 whitespace-nowrap">${icon?`<span class="text-[10px]">${icon}</span>`:''}${text}</span>`;
+}
+function vPaginate(pg, st, render){
+  const pages=Math.max(1,Math.ceil(st.total/st.per));
+  if(st.page>pages) st.page=pages;
+  const from=st.total?(st.page-1)*st.per+1:0, to=Math.min(st.total,st.page*st.per);
+  let nums=''; for(let p=1;p<=pages;p++){ if(p===1||p===pages||Math.abs(p-st.page)<=1) nums+=`<button data-pg="${p}" class="min-w-[32px] h-8 px-2 rounded-lg text-[13px] font-semibold ${p===st.page?'bg-slate-900 text-white':'text-slate-500 hover:bg-slate-100'}">${p}</button>`; else if(!nums.endsWith('…')) nums+='<span class="text-slate-300">…</span>'; }
+  pg.innerHTML=`
+    <button data-pgprev class="w-8 h-8 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40" ${st.page<=1?'disabled':''}>‹</button>${nums}
+    <button data-pgnext class="w-8 h-8 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40" ${st.page>=pages?'disabled':''}>›</button>
+    <span class="ml-auto text-xs text-slate-400">Showing ${from} to ${to} of ${st.total} entries</span>
+    <select data-per class="bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs font-medium text-slate-600">${[8,16,50].map(n=>`<option ${n===st.per?'selected':''}>${n}</option>`).join('')}</select>`;
+  if(!pg) return;
+  const bPrev=pg.querySelector('[data-pgprev]'); if(bPrev) bPrev.onclick=()=>{ if(st.page>1){st.page--;render();} };
+  const bNext=pg.querySelector('[data-pgnext]'); if(bNext) bNext.onclick=()=>{ if(st.page<pages){st.page++;render();} };
+  pg.querySelectorAll('[data-pg]').forEach(b=>b.onclick=()=>{ st.page=+b.dataset.pg; render(); });
+  const bPer=pg.querySelector('[data-per]'); if(bPer) bPer.onchange=e=>{ st.per=+e.target.value; st.page=1; render(); };
+}
+const V_TH='px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 whitespace-nowrap';
+const V_CARD='bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.04)] overflow-hidden anim-fadeUp';
+
+App.routes['#/overtime'] = async (el)=>{
+  const cid=uid('ot');
+  const canEdit=perm('overtime','edit');
+  const emps=await API.call('listEmployees').catch(()=>[]);
+
+  el.innerHTML=vCrumb(I18N.t('c4.nav.overtime'))+`
+  <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
+    <div class="inline-flex items-center gap-1 bg-slate-100 rounded-xl p-1" id="${cid}-range">
+      <button data-range="all" class="px-4 py-2 rounded-lg text-[13px] font-semibold bg-white shadow-sm text-slate-800 ring-1 ring-slate-200">${I18N.t('c4.ot.allStatuses')}</button>
+      <button data-range="pending" class="px-4 py-2 rounded-lg text-[13px] font-semibold text-slate-400 hover:text-slate-600">${I18N.t('c4.common.pending')}</button>
+      <button data-range="approved" class="px-4 py-2 rounded-lg text-[13px] font-semibold text-slate-400 hover:text-slate-600">${I18N.t('c4.common.approved')}</button>
+    </div>
+    <button class="${V_BLACK}" id="${cid}-add">+ ${I18N.t('c4.ot.logOvertime')}</button>
+  </div>
+  <div id="${cid}-body"></div>`;
+  const body=document.getElementById(cid+'-body');
+  const st={status:'',q:'',page:1,per:8,total:0};
+  const icoO=App.ICONS&&App.ICONS.overtime?App.ICONS.overtime:'';
+  const icoS=App.ICONS&&App.ICONS.shifts?App.ICONS.shifts:'';
+  const icoP=App.ICONS&&App.ICONS.payroll?App.ICONS.payroll:'';
+  const icoL=App.ICONS&&App.ICONS.leave?App.ICONS.leave:'';
+
+  async function load(){
+    const rows=await API.call('listOvertime',st.status);
+    const totalHrs=rows.reduce((a,r)=>a+Number(r.hours||0),0);
+    const totalAmt=rows.filter(r=>r.status==='approved').reduce((a,r)=>a+Number(r.amount||0),0);
+    const pendingN=rows.filter(r=>r.status==='pending').length;
+    body.innerHTML=`
+      <div class="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-5 anim-fadeUp">
+        ${vKpi(I18N.t('c4.ot.kpiRequests'), fmtNum(rows.length), I18N.t('c4.ot.kpiRequestsSub'), icoO)}
+        ${vKpi(I18N.t('c4.ot.kpiHours'), fmtNum(totalHrs), I18N.t('c4.ot.kpiHoursSub'), icoS)}
+        ${vKpi(I18N.t('c4.ot.kpiPayout'), fmt(totalAmt), I18N.t('c4.ot.kpiPayoutSub'), icoP)}
+        ${vKpi(I18N.t('c4.ot.kpiPending'), fmtNum(pendingN), I18N.t('c4.ot.kpiPendingSub'), icoL)}
+      </div>
+      <div class="${V_CARD}">
+        <div class="flex flex-wrap items-center gap-2.5 p-4 border-b border-slate-100">
+          <div class="relative flex-1 min-w-[180px] max-w-xs">
+            <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">⌕</span>
+            <input id="${cid}-q" placeholder="Search..." value="${esc(st.q)}" class="w-full bg-white border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400 focus:outline-none">
+          </div>
+          <select id="${cid}-f" class="bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 focus:outline-none">
+            <option value="">▽ ${I18N.t('c4.ot.allStatuses')}</option>
+            <option value="pending" ${st.status==='pending'?'selected':''}>${I18N.t('c4.common.pending')}</option>
+            <option value="approved" ${st.status==='approved'?'selected':''}>${I18N.t('c4.common.approved')}</option>
+            <option value="rejected" ${st.status==='rejected'?'selected':''}>${I18N.t('c4.common.rejected')}</option>
+          </select>
+        </div>
+        <div id="${cid}-tbl"></div>
+        <div id="${cid}-pg" class="flex flex-wrap items-center gap-2 px-4 py-3.5 border-t border-slate-100"></div>
+      </div>`;
+    const tbl=document.getElementById(cid+'-tbl'), pg=document.getElementById(cid+'-pg');
+    function filtered(){
+      const q=st.q.trim().toLowerCase();
+      if(!q) return rows;
+      return rows.filter(r=>String(r.employeeName).toLowerCase().includes(q));
+    }
+    function render(){
+      const fr=filtered(); st.total=fr.length;
+      const slice=fr.slice((st.page-1)*st.per, st.page*st.per);
+      tbl.innerHTML=`<div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="border-b border-slate-100">
+        ${[I18N.t('c4.common.date'),I18N.t('c4.common.employee'),I18N.t('c4.ot.colHours'),I18N.t('c4.ot.colRate'),I18N.t('c4.ot.colAmount'),I18N.t('c4.common.reason'),I18N.t('c4.common.status')].map((h,i)=>`<th class="${V_TH} ${i>=2&&i<=4?'text-right':''}">${h} <span class="text-slate-300">↕</span></th>`).join('')}
+        <th class="${V_TH} text-right">Actions</th></tr></thead>
+        <tbody class="divide-y divide-slate-50">${slice.length?slice.map(r=>`<tr class="hover:bg-slate-50/70 transition-colors">
+          <td class="px-4 py-3 tabular-nums text-slate-600 whitespace-nowrap">${fmtDate(r.date)}</td>
+          <td class="px-4 py-3"><div class="flex items-center gap-2.5">${vAvatar(r.employeeName)}<span class="font-medium text-slate-700 whitespace-nowrap">${esc(r.employeeName)}</span></div></td>
+          <td class="px-4 py-3 text-right"><span class="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold bg-blue-50 text-blue-700 tabular-nums">${r.hours}h</span></td>
+          <td class="px-4 py-3 text-right tabular-nums text-slate-600">${I18N.t('c4.ot.perHour').replace('{s}',fmt(r.rate))}</td>
+          <td class="px-4 py-3 text-right tabular-nums font-semibold text-slate-800">${fmt(r.amount)}</td>
+          <td class="px-4 py-3"><span class="text-slate-500 text-[13px] line-clamp-2 max-w-[220px]">${esc(r.reason||'—')}</span></td>
+          <td class="px-4 py-3">${r.status==='pending'?vPill(I18N.t('c4.common.pending'),'amber','◷'):r.status==='approved'?vPill(I18N.t('c4.common.approved'),'emerald','✓'):vPill(I18N.t('c4.common.rejected'),'red','✕')}</td>
+          <td class="px-4 py-3 text-right">${r.status==='pending'&&canEdit?`<div class="flex gap-1.5 justify-end">
+            <button class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 hover:bg-emerald-100 transition" data-ok="${r.id}">${I18N.t('c4.common.approve')}</button>
+            <button class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-50 text-red-600 ring-1 ring-red-200 hover:bg-red-100 transition" data-no="${r.id}">${I18N.t('c4.common.reject')}</button></div>`
+            :(r.status==='approved'&&canEdit?`<button class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white border border-slate-200 text-slate-500 hover:border-slate-300 transition" data-revoke="${r.id}">${I18N.t('c4.common.revoke')}</button>`
+            :`<span class="text-xs text-slate-400">${esc(r.approvedBy||'')}</span>`)}</td>
+        </tr>`).join(''):`<tr><td colspan="8" class="px-4 py-14 text-center"><div class="text-slate-300 text-3xl mb-2">◌</div><div class="text-sm text-slate-400">${I18N.t('c4.ot.emptyOt')}</div></td></tr>`}
+        </tbody></table></div>`;
+      vPaginate(pg, st, render);
+      tbl.querySelectorAll('[data-ok]').forEach(b=>b.onclick=async()=>{ await API.call('decideOvertime',b.dataset.ok,'approved'); toast(I18N.t('c4.ot.otApproved'),'success'); load(); });
+      tbl.querySelectorAll('[data-no]').forEach(b=>b.onclick=async()=>{ await API.call('decideOvertime',b.dataset.no,'rejected'); toast(I18N.t('c4.ot.otRejected'),'success'); load(); });
+      tbl.querySelectorAll('[data-revoke]').forEach(b=>b.onclick=async()=>{ await API.call('decideOvertime',b.dataset.revoke,'rejected'); toast(I18N.t('c4.ot.approvalRevoked'),'success'); load(); });
+    }
+    const qIn=document.getElementById(cid+'-q');
+    qIn.oninput=debounce(()=>{ st.q=qIn.value; st.page=1; render(); },300);
+    document.getElementById(cid+'-f').onchange=e=>{ st.status=e.target.value; st.page=1; load(); };
+    render();
+  }
+  el.querySelectorAll('#'+cid+'-range [data-range]').forEach(b=>b.onclick=()=>{
+    el.querySelectorAll('#'+cid+'-range [data-range]').forEach(x=>x.className='px-4 py-2 rounded-lg text-[13px] font-semibold text-slate-400 hover:text-slate-600');
+    b.className='px-4 py-2 rounded-lg text-[13px] font-semibold bg-white shadow-sm text-slate-800 ring-1 ring-slate-200';
+    st.status=b.dataset.range==='all'?'':b.dataset.range;
+    st.page=1; load();
+  });
+  const addBtn=document.getElementById(cid+'-add'); if(addBtn) addBtn.onclick=()=>{
+    const m=modal(I18N.t('c4.ot.logOtTitle'),`
+      <div class="grid grid-cols-2 gap-4">
+        ${field(I18N.t('c4.common.employee'),'employeeId',{type:'select',options:emps.filter(e=>e.active).map(e=>({value:e.id,label:e.name}))})}
+        ${field(I18N.t('c4.common.date'),'date',{type:'date',value:todayISO(),req:true})}
+        ${field(I18N.t('c4.ot.fHours'),'hours',{type:'number',value:2,min:0.5,step:0.5,req:true})}
+        ${field(I18N.t('c4.ot.fRate'),'rate',{type:'number',value:250,min:0,req:true})}
+        <div class="col-span-2">${field(I18N.t('c4.common.reason'),'reason',{type:'textarea',ph:I18N.t('c4.ot.phOtReason')})}</div>
+      </div>
+      <div class="flex justify-end gap-2 mt-6"><button class="${btnS}" id="oCancel">${I18N.t('c4.common.cancel')}</button><button class="${V_BLACK}" id="oSave">${I18N.t('c4.common.save')}</button></div>`);
+    m.el.querySelector('#oCancel').onclick=()=>m.close();
+    m.el.querySelector('#oSave').onclick=async()=>{
+      const d=collectForm(m.el);
+      await API.call('requestOvertime',d.employeeId,d.date,d.hours,d.rate,d.reason);
+      m.close(); toast(I18N.t('c4.ot.otLogged'),'success'); load();
+    };
+  };
+  await load();
+};
+})();
+
+</script>
+</body></html>

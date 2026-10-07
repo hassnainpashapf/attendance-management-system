@@ -128,52 +128,54 @@ const Alerts = {
   notifHTML(s, canEdit){
     s = s || {};
     const dis = canEdit ? '' : 'disabled';
+    /* Verola premium toggle (same as ZKTeco card) */
+    const vTgl = (name, checked)=>`
+      <label class="relative inline-flex cursor-pointer items-center shrink-0 ${canEdit?'':'opacity-60 pointer-events-none'}">
+        <input type="checkbox" name="${name}" ${checked?'checked':''} ${dis} class="sr-only peer">
+        <div class="w-9 h-5 bg-slate-200 peer-checked:bg-teal-600 rounded-full transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:w-4 after:h-4 after:bg-white after:rounded-full after:transition-transform peer-checked:after:translate-x-4 after:shadow"></div>
+      </label>`;
+    const vChan = (ico, icoCls, title, sub, tglName, tglOn, body)=>`
+      <div class="rounded-2xl border border-slate-200/70 p-5 mb-4 bg-white">
+        <div class="flex items-center gap-3 mb-4">
+          <span class="w-10 h-10 rounded-xl ${icoCls} flex items-center justify-center shrink-0">${ico}</span>
+          <div class="min-w-0 flex-1"><div class="font-bold text-slate-800 text-sm leading-tight">${title}</div>
+          ${sub?`<div class="text-xs text-slate-400 mt-0.5">${sub}</div>`:''}</div>
+          ${vTgl(tglName, tglOn)}
+        </div>
+        ${body}
+      </div>`;
+    const ICO_WA='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M21 11.5a8.5 8.5 0 01-12.4 7.5L3 21l2-5.4A8.5 8.5 0 1121 11.5z"/><path d="M9 9.8c.6 2.6 3.1 5.1 5.7 5.7l1-1.4 2.1 1c-.4 1.4-1.3 1.9-2.7 1.5-2.9-1-6.2-4.3-7.2-7.2-.4-1.4.1-2.3 1.5-2.7l1 2.1z"/></svg>';
+    const ICO_SMS='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3.5 7l8.5 6 8.5-6"/></svg>';
+    const ICO_SLACK='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M9 4L7 20M17 4l-2 16M4.5 9h15M3.5 15h15"/></svg>';
+    const ICO_EV='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M10.3 21a2 2 0 003.4 0"/></svg>';
     return `
-    <div class="rounded-xl border border-slate-200/70 p-4 mb-4">
-      <div class="flex items-center gap-2 mb-3">
-        <span class="text-base">💬</span><span class="font-semibold text-slate-700 text-sm">${T('t3.whatsapp')}</span>
-        <label class="ml-auto inline-flex items-center gap-2 text-xs text-slate-500 cursor-pointer">
-          <input type="checkbox" name="wa_enabled" ${on(s.wa_enabled)?'checked':''} ${dis} class="w-4 h-4 rounded accent-teal-600"> ${T('t3.waEnabled')}
-        </label>
-      </div>
+    ${vChan(ICO_WA,'bg-emerald-50 text-emerald-600',T('t3.whatsapp'),T('t3.waEnabled'),'wa_enabled',on(s.wa_enabled),`
       <div class="grid grid-cols-2 gap-4">
         <div class="col-span-2">${field(T('t3.waToken'),'wa_token',{type:'password',value:s.wa_token||'',cls:dis})}</div>
         ${field(T('t3.waPhoneId'),'wa_phone_number_id',{value:s.wa_phone_number_id||'',ph:'e.g. 123456789012345'})}
         ${field(T('t3.waTemplate'),'wa_template_name',{value:s.wa_template_name||'',ph:'optional'})}
       </div>
-      <p class="text-[11px] text-slate-400 mt-2">${T('t3.waTemplateHint')}</p>
-    </div>
-    <div class="rounded-xl border border-slate-200/70 p-4 mb-4">
-      <div class="flex items-center gap-2 mb-3">
-        <span class="text-base">📩</span><span class="font-semibold text-slate-700 text-sm">${T('t3.sms')}</span>
-        <label class="ml-auto inline-flex items-center gap-2 text-xs text-slate-500 cursor-pointer">
-          <input type="checkbox" name="sms_enabled" ${on(s.sms_enabled)?'checked':''} ${dis} class="w-4 h-4 rounded accent-teal-600"> ${T('t3.smsEnabled')}
-        </label>
-      </div>
+      <p class="text-[11px] text-slate-400 mt-2">${T('t3.waTemplateHint')}</p>`)}
+    ${vChan(ICO_SMS,'bg-sky-50 text-sky-600',T('t3.sms'),T('t3.smsEnabled'),'sms_enabled',on(s.sms_enabled),`
       ${field(T('t3.smsUrl'),'sms_webhook_url',{value:s.sms_webhook_url||'',ph:'webhook.example.com/sms-hook'})}
-      <p class="text-[11px] text-slate-400 mt-2">${T('t3.smsUrlHint')}</p>
-    </div>
-    <div class="rounded-xl border border-slate-200/70 p-4 mb-4">
-      <div class="flex items-center gap-2 mb-3">
-        <span class="text-base">💬</span><span class="font-semibold text-slate-700 text-sm">Slack</span>
-        <label class="ml-auto inline-flex items-center gap-2 text-xs text-slate-500 cursor-pointer">
-          <input type="checkbox" name="slack_enabled" ${on(s.slack_enabled)?'checked':''} ${dis} class="w-4 h-4 rounded accent-teal-600"> Enabled
-        </label>
-      </div>
+      <p class="text-[11px] text-slate-400 mt-2">${T('t3.smsUrlHint')}</p>`)}
+    ${vChan(ICO_SLACK,'bg-violet-50 text-violet-600','Slack','Enabled','slack_enabled',on(s.slack_enabled),`
       ${field('Incoming webhook URL','slack_webhook_url',{value:s.slack_webhook_url||'',ph:'hooks.slack.com/services/…',cls:dis})}
-      <p class="text-[11px] text-slate-400 mt-2">Create an incoming webhook in your Slack workspace (Apps → Incoming Webhooks) and paste the URL here. Check-in and check-out alerts are posted to that channel.</p>
-    </div>
-    <div class="rounded-xl border border-slate-200/70 p-4 mb-4">
-      <div class="font-semibold text-slate-700 text-sm mb-3">${T('t3.events')}</div>
+      <p class="text-[11px] text-slate-400 mt-2">Create an incoming webhook in your Slack workspace (Apps → Incoming Webhooks) and paste the URL here. Check-in and check-out alerts are posted to that channel.</p>`)}
+    <div class="rounded-2xl border border-slate-200/70 p-5 mb-4 bg-white">
+      <div class="flex items-center gap-3 mb-4">
+        <span class="w-10 h-10 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center shrink-0">${ICO_EV}</span>
+        <div class="font-bold text-slate-800 text-sm">${T('t3.events')}</div>
+      </div>
       <div class="grid grid-cols-2 gap-2.5">
         ${[['alert_late','t3.evLate'],['alert_absent','t3.evAbsent'],['alert_leave_decision','t3.evLeave'],['alert_out_of_zone','t3.evZone'],['alert_checkin','Check-in (Slack)'],['alert_checkout','Check-out (Slack)']]
-          .map(([k,l])=>`<label class="flex items-center gap-2 text-sm text-slate-600 cursor-pointer"><input type="checkbox" name="${k}" ${on(s[k])?'checked':''} ${dis} class="w-4 h-4 rounded accent-teal-600"> ${l.startsWith('t3.')?T(l):l}</label>`).join('')}
+          .map(([k,l])=>`<label class="flex items-center gap-2.5 text-sm text-slate-600 cursor-pointer bg-slate-50 hover:bg-slate-100 border border-slate-200/60 rounded-xl px-3.5 py-2.5 transition"><input type="checkbox" name="${k}" ${on(s[k])?'checked':''} ${dis} class="w-4 h-4 rounded accent-teal-600 shrink-0"> ${l.startsWith('t3.')?T(l):l}</label>`).join('')}
       </div>
       <div class="mt-4 max-w-[220px]">${field(T('t3.grace'),'absence_grace_minutes',{type:'number',min:0,value:s.absence_grace_minutes||60})}</div>
       <p class="text-[11px] text-slate-400 mt-1">${T('t3.graceHint')}</p>
     </div>
     ${canEdit?`
-    <div class="rounded-xl bg-slate-50 border border-slate-200/70 p-4 mb-4">
+    <div class="rounded-2xl bg-slate-50 border border-slate-200/70 p-5 mb-4">
       <div class="flex flex-wrap items-end gap-3">
         <div class="flex-1 min-w-[180px]">${field(T('t3.testTo'),'t3_test_to',{ph:'03XXXXXXXXX'})}</div>
         <button class="${btnS} !text-xs" data-t3test="whatsapp">${T('t3.testWa')}</button>

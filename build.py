@@ -51,14 +51,14 @@ window.addEventListener('unhandledrejection',function(e){window.onerror('PROMISE
 for f in files:
     chunks.append((f.name, f"\n/* ===== {f.name} ===== */\n" + f.read_text()))
 
-# --- 1. greedy split into 3 parts, each <= PART_LIMIT *bytes*
+# --- 1. greedy split into 4 parts, each <= PART_LIMIT *bytes*
 # (byte-based: the Urdu locale file has many 2-byte chars, so char counts lie)
-parts = [[], [], []]
+parts = [[], [], [], []]
 cur = 0
 def _b(s):
     return len(s.encode('utf-8'))
 for name, text in chunks:
-    if parts[cur] and cur < 2 and sum(_b(t) for _, t in parts[cur]) + _b(text) > PART_LIMIT:
+    if parts[cur] and cur < 3 and sum(_b(t) for _, t in parts[cur]) + _b(text) > PART_LIMIT:
         cur += 1
     parts[cur].append((name, text))
 part_js = ['\n'.join(t for _, t in p) for p in parts]
@@ -178,16 +178,17 @@ if '</body>' not in shell:
     sys.exit(1)
 app2_html = part_doc(part_js[1])
 app3_html = part_doc(part_js[2])
+app4_html = part_doc(part_js[3])
 # mirror doGet() exactly: inject extracted script blocks before the LAST </body>
 k = shell.rindex('</body>')
-assembled = shell[:k] + extract_script(app2_html) + extract_script(app3_html) + shell[k:]
+assembled = shell[:k] + extract_script(app2_html) + extract_script(app3_html) + extract_script(app4_html) + shell[k:]
 if 'APP_PART' in assembled:
     print('ASSEMBLY CHECK FAILED: APP_PART marker survived assembly')
     sys.exit(1)
 
 DEPLOY.mkdir(parents=True, exist_ok=True)
 outputs = [('index.html', shell), ('app2.html', app2_html), ('app3.html', app3_html),
-           ('assembled.html', assembled)]
+           ('app4.html', app4_html), ('assembled.html', assembled)]
 for name, content in outputs:
     (DEPLOY / name).write_text(content)
     print('Wrote deploy/%s (%d bytes)' % (name, len(content.encode('utf-8'))))
@@ -205,12 +206,12 @@ def inline_scripts(html):
     return [m.group(1) for m in
             re.finditer(r'<script(?![^>]*\bsrc\b)[^>]*>([\s\S]*?)</script>', html)]
 blocks = inline_scripts(assembled)
-# block 0 = client-side error reporter (shell), blocks 1-3 = the 3 app parts
-if len(blocks) != 4 or 'boot-errors' not in blocks[0] \
+# block 0 = client-side error reporter (shell), blocks 1-4 = the 4 app parts
+if len(blocks) != 5 or 'boot-errors' not in blocks[0] \
         or '\n'.join(b[1:-1] for b in blocks[1:]) != combined:
     print('ASSEMBLED EQUIVALENCE CHECK FAILED')
     sys.exit(1)
-print('Assembled equivalence OK (error reporter + 3 script blocks rejoin to the combined source)')
+print('Assembled equivalence OK (error reporter + 4 script blocks rejoin to the combined source)')
 
 # --- 7. every API.call fn must exist in MockAPI (whole-app check on combined) ---
 fns = set(re.findall(r"API\.call\('([a-zA-Z]+)'", combined))

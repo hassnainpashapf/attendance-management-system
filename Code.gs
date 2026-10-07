@@ -80,7 +80,7 @@ function doGet() {
   var shell = HtmlService.createHtmlOutputFromFile('index').getContent();
   var k = shell.lastIndexOf('</body>');
   if (k < 0) throw new Error('shell has no </body>');
-  var html = shell.substring(0, k) + partScript('app2') + partScript('app3') + shell.substring(k);
+  var html = shell.substring(0, k) + partScript('app2') + partScript('app3') + partScript('app4') + shell.substring(k);
   return HtmlService.createHtmlOutput(html)
     .setTitle('Attendance Management System')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
@@ -90,12 +90,13 @@ function doGet() {
    Run this after pasting files and before deploying a new version. */
 function verifyAssembly() {
   var out = {};
-  ['index', 'app2', 'app3'].forEach(function (name) {
+  ['index', 'app2', 'app3', 'app4'].forEach(function (name) {
     var doc = HtmlService.createHtmlOutputFromFile(name).getContent();
     out[name + '_docChars'] = doc.length;
   });
   out.app2_scriptChars = partScript('app2').length;
   out.app3_scriptChars = partScript('app3').length;
+  out.app4_scriptChars = partScript('app4').length;
   out.app2_hasBoot = partScript('app2').indexOf('11_layout.js') >= 0;
   out.app3_hasDashboard = partScript('app3').indexOf('20_dashboard.js') >= 0;
   Logger.log(JSON.stringify(out));

@@ -259,17 +259,28 @@ if (typeof App !== 'undefined' && App.nav){
     var employees = await API.call('listEmployees').catch(function(){ return []; });
     var active = (employees || []).filter(function(e){ return e.active; });
     var opts = active.map(function(e){ return { value: e.id, label: e.name + ' (' + e.code + ')' }; });
-    el.innerHTML = pageHead(I18N.t('t1.title'), I18N.t('t1.subtitle')) + '\n' +
+    var vCrumb = '<div class="flex items-center gap-2 text-[13px] text-slate-400 mb-4 anim-fadeUp">' +
+      '<span class="text-base">⌂</span><a href="#/dashboard" class="hover:text-slate-600">Dashboard</a><span>›</span>' +
+      '<span class="text-slate-700 font-semibold">' + esc(I18N.t('t1.title')) + '</span></div>' +
+      '<div class="mb-6 anim-fadeUp"><h1 class="text-[26px] font-bold text-slate-900 tracking-tight">' + esc(I18N.t('t1.title')) + '</h1>' +
+      '<p class="text-sm text-slate-400 mt-1">' + esc(I18N.t('t1.subtitle')) + '</p></div>';
+    var vStepHead = function(n, title){
+      var clean = String(title || '').replace(/^\d+\s*[·•]\s*/, '');
+      return '<div class="flex items-center gap-2.5 mb-4">' +
+        '<span class="w-6 h-6 rounded-full bg-teal-600 text-white text-[11px] font-bold flex items-center justify-center shrink-0">' + n + '</span>' +
+        '<h3 class="font-bold text-slate-800">' + esc(clean) + '</h3></div>';
+    };
+    el.innerHTML = vCrumb + '\n' +
     '<div class="grid grid-cols-1 lg:grid-cols-2 gap-4 max-w-5xl">' +
-      '<div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.05)] p-6 anim-fadeUp">' +
-        '<h3 class="font-display font-bold text-slate-800 mb-4">' + esc(I18N.t('t1.step1')) + '</h3>' +
+      '<div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.04)] p-6 anim-fadeUp">' +
+        vStepHead(1, I18N.t('t1.step1')) +
         field(I18N.t('t1.selectEmployee'), 'faceEmp', { type: 'select',
           options: [{ value: '', label: I18N.t('t1.chooseEmployee') }].concat(opts), cls: 'mb-4' }) +
         '<div id="' + cid + '-status"></div>' +
         '<div class="text-xs text-slate-400 mt-2">' + esc(I18N.t('t1.reenrollHint')) + '</div>' +
       '</div>' +
-      '<div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.05)] p-6 anim-fadeUp">' +
-        '<h3 class="font-display font-bold text-slate-800 mb-4">' + esc(I18N.t('t1.step2')) + '</h3>' +
+      '<div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.04)] p-6 anim-fadeUp">' +
+        vStepHead(2, I18N.t('t1.step2')) +
         '<div class="rounded-2xl overflow-hidden bg-slate-900 aspect-[4/3] relative mb-4">' +
           '<video id="' + cid + '-vid" class="w-full h-full object-cover" autoplay playsinline muted></video>' +
           '<canvas id="' + cid + '-cap" class="hidden"></canvas>' +

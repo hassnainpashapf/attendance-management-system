@@ -100,14 +100,14 @@ function field(label,name,opts={}){
   const {type='text',value='',ph='',req=false,cls='',step,options,rows=3,min,max}=opts;
   let input;
   if(type==='select'){
-    input=`<select name="${name}" class="bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 w-full text-sm text-slate-700 focus:ring-2 focus:ring-teal-500/40 focus:border-teal-500 focus:outline-none transition ${cls}">${(options||[]).map(o=>`<option value="${esc(o.value)}" ${String(o.value)===String(value)?'selected':''}>${esc(o.label)}</option>`).join('')}</select>`;
+    input=`<select name="${name}" class="bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 w-full text-sm text-slate-700 focus:ring-2 focus:ring-slate-900/10 focus:border-slate-500 focus:outline-none transition ${cls}">${(options||[]).map(o=>`<option value="${esc(o.value)}" ${String(o.value)===String(value)?'selected':''}>${esc(o.label)}</option>`).join('')}</select>`;
   }else if(type==='textarea'){
-    input=`<textarea name="${name}" rows="${rows}" placeholder="${esc(ph)}" class="bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 w-full text-sm text-slate-700 placeholder:text-slate-400 focus:ring-2 focus:ring-teal-500/40 focus:border-teal-500 focus:outline-none transition ${cls}">${esc(value)}</textarea>`;
+    input=`<textarea name="${name}" rows="${rows}" placeholder="${esc(ph)}" class="bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 w-full text-sm text-slate-700 placeholder:text-slate-400 focus:ring-2 focus:ring-slate-900/10 focus:border-slate-500 focus:outline-none transition ${cls}">${esc(value)}</textarea>`;
   }else if(type==='checkbox'){
-    input=`<input type="checkbox" name="${name}" ${value?'checked':''} class="w-4 h-4 rounded accent-teal-600">`;
+    input=`<input type="checkbox" name="${name}" ${value?'checked':''} class="w-4 h-4 rounded accent-slate-900">`;
     return `<label class="flex items-center gap-2.5 text-sm cursor-pointer ${cls}">${input}<span class="font-medium text-slate-600">${label}</span></label>`;
   }else{
-    input=`<input type="${type}" name="${name}" value="${esc(value)}" ${ph?`placeholder="${esc(ph)}"`:''} ${req?'required':''} ${step?`step="${step}"`:''} ${min!=null?`min="${min}"`:''} ${max!=null?`max="${max}"`:''} class="bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 w-full text-sm text-slate-700 placeholder:text-slate-400 focus:ring-2 focus:ring-teal-500/40 focus:border-teal-500 focus:outline-none transition ${cls}">`;
+    input=`<input type="${type}" name="${name}" value="${esc(value)}" ${ph?`placeholder="${esc(ph)}"`:''} ${req?'required':''} ${step?`step="${step}"`:''} ${min!=null?`min="${min}"`:''} ${max!=null?`max="${max}"`:''} class="bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 w-full text-sm text-slate-700 placeholder:text-slate-400 focus:ring-2 focus:ring-slate-900/10 focus:border-slate-500 focus:outline-none transition ${cls}">`;
   }
   return `<label class="block ${cls}"><span class="block text-xs font-semibold text-slate-500 mb-1.5 tracking-wide">${label}${req?' <span class="text-red-500">*</span>':''}</span>${input}</label>`;
 }
@@ -115,27 +115,32 @@ function field(label,name,opts={}){
 /* ---------- tables & cards ---------- */
 function tableHTML(cols, rows, opts={}){
   const tcls=opts.compact?'text-xs':'text-sm';
-  return `<div class="overflow-x-auto rounded-2xl border border-slate-200/70 bg-white shadow-[0_1px_3px_rgba(15,23,42,.05)]">
+  return `<div class="overflow-x-auto rounded-2xl border border-slate-200/70 bg-white shadow-[0_1px_3px_rgba(15,23,42,.04)]">
     <table class="w-full ${tcls}">
       <thead>
-        <tr class="border-b border-slate-100">${cols.map(c=>`<th class="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 whitespace-nowrap ${c.num?'text-right':''}">${c.label}</th>`).join('')}</tr>
+        <tr class="border-b border-slate-200/70 bg-slate-50/60">${cols.map(c=>`<th class="px-5 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 whitespace-nowrap ${c.num?'text-right':''}">${c.label}</th>`).join('')}</tr>
       </thead>
-      <tbody class="divide-y divide-slate-50">${rows.length?rows.map((r,i)=>`<tr class="hover:bg-teal-50/40 transition-colors">${cols.map(c=>{
+      <tbody class="divide-y divide-slate-100">${rows.length?rows.map((r,i)=>`<tr class="hover:bg-slate-50 transition-colors">${cols.map(c=>{
         const v=typeof c.get==='function'?c.get(r,i):r[c.key];
-        return `<td class="px-4 py-3 ${c.num?'text-right tabular-nums':''} ${c.cls||''}">${v??'<span class="text-slate-300">—</span>'}</td>`;
+        return `<td class="px-5 py-3.5 ${c.num?'text-right tabular-nums':''} ${c.cls||''}">${v??'<span class="text-slate-300">—</span>'}</td>`;
       }).join('')}</tr>`).join(''):`<tr><td colspan="${cols.length}" class="px-4 py-12 text-center"><div class="text-slate-300 text-3xl mb-2">◌</div><div class="text-sm text-slate-400">${opts.empty||I18N.t('c4.common.noRecords')}</div></td></tr>`}</tbody>
     </table></div>`;
 }
-function statCard(label,value,sub='',accent='teal',icon='',raw=null,prefix=''){
-  const chip={teal:'bg-teal-50 text-teal-600',emerald:'bg-emerald-50 text-emerald-600',red:'bg-red-50 text-red-500',amber:'bg-amber-50 text-amber-500',blue:'bg-blue-50 text-blue-500',slate:'bg-slate-100 text-slate-500',violet:'bg-violet-50 text-violet-500',cyan:'bg-cyan-50 text-cyan-600'}[accent]||'bg-teal-50 text-teal-600';
+function statCard(label,value,sub='',accent='slate',icon='',raw=null,prefix=''){
+  const chip={slate:'bg-slate-100 text-slate-500',teal:'bg-teal-50 text-teal-600',emerald:'bg-emerald-50 text-emerald-600',red:'bg-red-50 text-red-500',amber:'bg-amber-50 text-amber-500',blue:'bg-blue-50 text-blue-500',violet:'bg-violet-50 text-violet-500',cyan:'bg-cyan-50 text-cyan-600'}[accent]||'bg-slate-100 text-slate-500';
   const cnt=raw!=null?` data-countup="${raw}" data-prefix="${esc(prefix)}"`:'';
-  return `<div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.05)] p-5 card-hover">
-    <div class="flex items-center justify-between mb-3">
-      <div class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">${label}</div>
-      ${icon?`<div class="w-9 h-9 rounded-xl ${chip} flex items-center justify-center">${icon}</div>`:''}
+  return `<div class="bg-white rounded-2xl border border-slate-200/70 p-5 shadow-[0_1px_3px_rgba(15,23,42,.04)]">
+    <div class="flex items-center gap-2.5 mb-4">
+      ${icon?`<span class="w-9 h-9 rounded-xl ${chip} flex items-center justify-center shrink-0">${icon}</span>`:''}
+      <span class="text-[13px] text-slate-500 font-medium">${label}</span>
     </div>
-    <div class="font-display text-[26px] leading-8 font-bold text-slate-800 tabular-nums"${cnt}>${value}</div>
+    <div class="text-[26px] font-bold text-slate-900 tabular-nums tracking-tight"${cnt}>${value}</div>
     ${sub?`<div class="text-xs text-slate-400 mt-1.5">${sub}</div>`:''}</div>`;
+}
+/* Initials avatar circle (Verola table style). */
+function avatar(name, cls='w-8 h-8 text-[11px]'){
+  const init=(String(name||'?').trim().split(/\s+/).map(w=>w[0]).join('')||'?').slice(0,2).toUpperCase();
+  return `<span class="${cls} rounded-full bg-slate-200 text-slate-500 font-bold inline-flex items-center justify-center shrink-0">${esc(init)}</span>`;
 }
 function animateCounters(root){
   (root||document).querySelectorAll('[data-countup]').forEach(el=>{
@@ -157,15 +162,15 @@ function emptyState(title, sub='', action=''){
 }
 function pageHead(title, sub, actions=''){
   return `<div class="flex flex-wrap items-center justify-between gap-3 mb-6 anim-fadeUp">
-    <div><h1 class="font-display text-[26px] font-bold text-slate-800 tracking-tight">${title}</h1>${sub?`<p class="text-sm text-slate-400 mt-1">${sub}</p>`:''}</div>
+    <div><h1 class="font-display text-[26px] font-bold text-slate-900 tracking-tight">${title}</h1>${sub?`<p class="text-sm text-slate-400 mt-1">${sub}</p>`:''}</div>
     <div class="flex gap-2 flex-wrap">${actions}</div></div>`;
 }
-const btnP='px-4 py-2.5 rounded-xl bg-gradient-to-b from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700 text-white text-sm font-semibold shadow-[0_2px_8px_rgba(13,148,136,.35)] active:scale-[.98] transition';
+const btnP='px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold shadow active:scale-[.98] transition';
 const btnS='px-4 py-2.5 rounded-xl bg-white border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-sm font-semibold text-slate-600 active:scale-[.98] transition shadow-sm';
-const btnD='px-4 py-2.5 rounded-xl bg-gradient-to-b from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white text-sm font-semibold shadow-[0_2px_8px_rgba(220,38,38,.3)] active:scale-[.98] transition';
+const btnD='px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-semibold shadow active:scale-[.98] transition';
 function badge(text,color='slate'){
-  const m={slate:'bg-slate-100 text-slate-600 ring-slate-200',emerald:'bg-emerald-50 text-emerald-700 ring-emerald-200',teal:'bg-teal-50 text-teal-700 ring-teal-200',red:'bg-red-50 text-red-600 ring-red-200',amber:'bg-amber-50 text-amber-700 ring-amber-200',blue:'bg-blue-50 text-blue-700 ring-blue-200',violet:'bg-violet-50 text-violet-700 ring-violet-200',cyan:'bg-cyan-50 text-cyan-700 ring-cyan-200'};
-  return `<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold ring-1 ${m[color]||m.slate} whitespace-nowrap"><span class="w-1 h-1 rounded-full bg-current"></span>${esc(text)}</span>`;
+  const m={slate:'bg-slate-100 text-slate-600 ring-slate-200',emerald:'bg-emerald-50 text-emerald-700 ring-emerald-200',teal:'bg-teal-50 text-teal-700 ring-teal-200',red:'bg-red-50 text-red-600 ring-red-200',amber:'bg-amber-50 text-amber-700 ring-amber-200',blue:'bg-blue-50 text-blue-700 ring-blue-200',sky:'bg-sky-50 text-sky-700 ring-sky-200',violet:'bg-violet-50 text-violet-700 ring-violet-200',cyan:'bg-cyan-50 text-cyan-700 ring-cyan-200'};
+  return `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ring-1 ${m[color]||m.slate} whitespace-nowrap"><span class="w-1 h-1 rounded-full bg-current"></span>${esc(text)}</span>`;
 }
 
 /* ---------- misc ---------- */
@@ -210,7 +215,7 @@ G.todayISO=todayISO; G.monthISO=monthISO; G.addDays=addDays; G.daysUntil=daysUnt
 G.haversineM=haversineM;
 G.toast=toast; G.modal=modal; G.confirmDlg=confirmDlg;
 G.formVal=formVal; G.formNum=formNum; G.collectForm=collectForm; G.field=field;
-G.tableHTML=tableHTML; G.statCard=statCard; G.pageHead=pageHead;
+G.tableHTML=tableHTML; G.statCard=statCard; G.pageHead=pageHead; G.avatar=avatar;
 G.animateCounters=animateCounters; G.emptyState=emptyState;
 G.btnP=btnP; G.btnS=btnS; G.btnD=btnD; G.badge=badge;
 G.debounce=debounce; G.uid=uid; G.toCSV=toCSV; G.dlCSV=dlCSV; G.downloadCSV=downloadCSV;

@@ -15,56 +15,71 @@ const MODULES=[
 App.routes['#/settings'] = async (el)=>{
   const cid=uid('set');
   const canEdit=perm('settings','edit');
-  el.innerHTML=pageHead('Settings','Company profile, notifications and access control')+`
+  const vHead=(ico,title,sub)=>`
+    <div class="flex items-center gap-3 mb-5">
+      <span class="w-10 h-10 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center shrink-0">${ico}</span>
+      <div class="min-w-0"><h3 class="font-bold text-slate-800 leading-tight">${title}</h3>
+      ${sub?`<p class="text-xs text-slate-400 mt-0.5">${sub}</p>`:''}</div>
+    </div>`;
+  const V_ICO_BLD='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><rect x="4" y="3" width="16" height="18" rx="1.5"/><path d="M9 21v-4h6v4M8.5 7.5h2M8.5 11h2M13.5 7.5h2M13.5 11h2"/></svg>';
+  const V_ICO_MAIL='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3.5 7l8.5 6 8.5-6"/></svg>';
+  const V_ICO_BK='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M12 3v11m0 0l-4-4m4 4l4-4"/><path d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>';
+  const V_ICO_BELL='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M10.3 21a2 2 0 003.4 0"/></svg>';
+  const V_ICO_LOG='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M8 6h13M8 12h13M8 18h13"/><circle cx="4" cy="6" r="1.2" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="4" cy="18" r="1.2" fill="currentColor" stroke="none"/></svg>';
+  const V_ICO_SHIELD='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M12 3l7 3v5c0 5-3.5 8-7 9-3.5-1-7-4-7-9V6z"/><path d="M9.5 12l2 2 3.5-4"/></svg>';
+  el.innerHTML=`
+  <div class="flex items-center gap-2 text-[13px] text-slate-400 mb-4 anim-fadeUp">
+    <span class="text-base">⌂</span><a href="#/dashboard" class="hover:text-slate-600">Dashboard</a><span>›</span><span class="text-slate-700 font-semibold">Settings</span>
+  </div>
+  <div class="mb-6 anim-fadeUp"><h1 class="text-[26px] font-bold text-slate-900 tracking-tight">Settings</h1>
+  <p class="text-sm text-slate-400 mt-1">Company profile, notifications and access control</p></div>
   <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
-    <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.05)] p-6">
-      <h3 class="font-display font-bold text-slate-800 mb-1">Company profile</h3>
-      <p class="text-sm text-slate-400 mb-5">Shown on logins, payslips and reports.</p>
+    <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.04)] p-6">
+      ${vHead(V_ICO_BLD,'Company profile','Shown on logins, payslips and reports.')}
       <div id="${cid}-profile"></div>
     </div>
     <div class="space-y-4">
-      <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.05)] p-6">
-        <h3 class="font-display font-bold text-slate-800 mb-1">Email notifications (SMTP)</h3>
-        <p class="text-sm text-slate-400 mb-5">Used for leave decisions, expiring documents and payroll alerts.</p>
+      <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.04)] p-6">
+        ${vHead(V_ICO_MAIL,'Email notifications (SMTP)','Used for leave decisions, expiring documents and payroll alerts.')}
         <div id="${cid}-smtp"></div>
       </div>
-      <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.05)] p-6">
-        <h3 class="font-display font-bold text-slate-800 mb-1">ZKTeco biometric device</h3>
-        <p class="text-sm text-slate-400 mb-5">Connect a ZKTeco fingerprint/face device. Punches from the device appear in attendance automatically.</p>
+      <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.04)] p-6">
+        <h3 class="font-bold text-slate-800 mb-1">ZKTeco biometric device</h3>
+        <p class="text-xs text-slate-400 mb-5">Connect a ZKTeco fingerprint/face device. Punches from the device appear in attendance automatically.</p>
         <div id="${cid}-zkt"></div>
       </div>
-      <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.05)] p-6">
-        <h3 class="font-display font-bold text-slate-800 mb-1">Sign-in options</h3>
+      <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.04)] p-6">
+        <h3 class="font-bold text-slate-800 mb-1">Sign-in options</h3>
         <div class="flex items-start gap-3 mt-4">
           <div class="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold shrink-0">G</div>
           <div class="text-sm"><div class="font-semibold text-slate-700">Sign in with Google</div>
           <div class="text-slate-400 text-xs mt-1">In production, admins can link their Google Workspace account for one-click sign-in. Enable it from the Apps Script project settings, then toggle it here.</div></div>
         </div>
       </div>
-      <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.05)] p-6">
-        <h3 class="font-display font-bold text-slate-800 mb-1">Backup</h3>
-        <p class="text-sm text-slate-400 mb-4">Save a copy of the company spreadsheet to Google Drive.</p>
+      <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.04)] p-6">
+        ${vHead(V_ICO_BK,'Backup','Save a copy of the company spreadsheet to Google Drive.')}
         <button class="${btnS}" id="${cid}-backup">Backup Now</button>
         <div id="${cid}-backupMsg" class="mt-3 text-sm"></div>
       </div>
-      <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.05)] p-6">
-        <h3 class="font-display font-bold text-slate-800 mb-1">${I18N.t('t3.notifications')}</h3>
-        <p class="text-sm text-slate-400 mb-5">${I18N.t('t3.notifSub')}</p>
+      <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.04)] p-6">
+        ${vHead(V_ICO_BELL,I18N.t('t3.notifications'),I18N.t('t3.notifSub'))}
         <div id="${cid}-notif"></div>
       </div>
     </div>
   </div>
-  ${canEdit?`<div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.05)] p-6 mt-4">
-    <div class="flex items-center justify-between mb-1">
-      <h3 class="font-display font-bold text-slate-800">${I18N.t('t3.logTitle')}</h3>
-      <button class="${btnS} !py-1.5 !text-xs" id="${cid}-logRefresh">${I18N.t('t3.refresh')}</button>
+  ${canEdit?`<div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.04)] p-6 mt-4">
+    <div class="flex items-center justify-between mb-5">
+      <div class="flex items-center gap-3">
+        <span class="w-10 h-10 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center shrink-0">${V_ICO_LOG}</span>
+        <div><h3 class="font-bold text-slate-800 leading-tight">${I18N.t('t3.logTitle')}</h3>
+        <p class="text-xs text-slate-400 mt-0.5">${I18N.t('t3.logSub')}</p></div>
+      </div>
+      <button class="${btnS} !py-1.5 !text-xs shrink-0" id="${cid}-logRefresh">${I18N.t('t3.refresh')}</button>
     </div>
-    <p class="text-sm text-slate-400 mb-5">${I18N.t('t3.logSub')}</p>
     <div id="${cid}-msglog"></div>
   </div>`:''}
-  ${canEdit?`<div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.05)] p-6 mt-4">
-    <h3 class="font-display font-bold text-slate-800 mb-1">Role permissions</h3>
-    <p class="text-sm text-slate-400 mb-5">Control which roles can view or edit each module.</p>
+  ${canEdit?`<div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.04)] p-6 mt-4">
+    ${vHead(V_ICO_SHIELD,'Role permissions','Control which roles can view or edit each module.')}
     <div id="${cid}-perms"></div>
     <button class="${btnP} mt-4" id="${cid}-savePerms">Save permissions</button>
   </div>`:''}`;

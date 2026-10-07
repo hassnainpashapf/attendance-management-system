@@ -102,19 +102,21 @@ window.AndroidRefreshPunchConfig = async function(employeeId){
 /* ---------- "Automatic attendance" toggle card on the punch page ---------- */
 function t5CardHTML(on){
   return `<div class="max-w-5xl mt-4" id="t5-auto-card">
-    <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.05)] p-6 anim-fadeUp">
-      <div class="flex items-center justify-between gap-4">
-        <div class="min-w-0">
-          <h3 class="font-display font-bold text-slate-800">${esc(I18N.t('t5.autoTitle'))}</h3>
-          <p class="text-sm text-slate-500 mt-1">${esc(I18N.t('t5.autoDesc'))}</p>
+    <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.04)] p-6 anim-fadeUp">
+      <div class="flex items-center gap-3">
+        <span class="w-10 h-10 rounded-xl bg-teal-50 text-teal-600 flex items-center justify-center shrink-0">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M12 21s-7-5.5-7-11a7 7 0 0114 0c0 5.5-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
+        </span>
+        <div class="min-w-0 flex-1">
+          <h3 class="font-bold text-slate-800 leading-tight">${esc(I18N.t('t5.autoTitle'))}</h3>
+          <p class="text-xs text-slate-400 mt-0.5">${esc(I18N.t('t5.autoDesc'))}</p>
         </div>
         <label class="relative inline-flex cursor-pointer items-center shrink-0" title="${esc(I18N.t('t5.autoTitle'))}">
           <input type="checkbox" id="t5-auto-toggle" class="sr-only peer"${on ? ' checked' : ''}>
-          <span class="block w-11 h-6 rounded-full bg-slate-200 peer-checked:bg-teal-500 transition-colors"></span>
-          <span class="absolute left-0.5 top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform peer-checked:translate-x-5 pointer-events-none"></span>
+          <div class="w-9 h-5 bg-slate-200 peer-checked:bg-teal-600 rounded-full transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:w-4 after:h-4 after:bg-white after:rounded-full after:transition-transform peer-checked:after:translate-x-4 after:shadow"></div>
         </label>
       </div>
-      <div id="t5-auto-status" class="text-xs text-slate-400 mt-3">${esc(I18N.t(on ? 't5.isOn' : 't5.isOff'))}</div>
+      <div id="t5-auto-status" class="mt-3 inline-flex items-center gap-1.5 text-[11px] font-medium rounded-full px-2.5 py-1 ${on?'text-emerald-700 bg-emerald-50 ring-1 ring-emerald-200/60':'text-slate-400 bg-slate-100'}">${esc(I18N.t(on ? 't5.isOn' : 't5.isOff'))}</div>
     </div>
   </div>`;
 }
@@ -137,6 +139,8 @@ function injectToggle(){
     const paint = on=>{
       tgl.checked = !!on;
       status.textContent = I18N.t(on ? 't5.isOn' : 't5.isOff');
+      status.className = 'mt-3 inline-flex items-center gap-1.5 text-[11px] font-medium rounded-full px-2.5 py-1 ' +
+        (on ? 'text-emerald-700 bg-emerald-50 ring-1 ring-emerald-200/60' : 'text-slate-400 bg-slate-100');
     };
     /* load the real toggle state + warm the bridge cache */
     T5.refresh(eid).then(()=>paint(T5.cache.autoPunch)).catch(()=>{});

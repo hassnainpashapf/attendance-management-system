@@ -157,6 +157,27 @@ Object.assign(I18N.dict.ur, {
 
 const t2t = k => I18N.t('t2.' + k);
 
+/* Verola bits (local copy — 100_payroll.js defines its own inside its IIFE) */
+function t2Avatar(name){
+  const init=(String(name||'?').trim().split(/\s+/).map(w=>w[0]).join('')||'?').slice(0,2).toUpperCase();
+  return `<span class="w-8 h-8 rounded-full bg-slate-200 text-slate-500 text-[11px] font-bold inline-flex items-center justify-center shrink-0">${esc(init)}</span>`;
+}
+function t2EmpCell(name, code){
+  return `<div class="flex items-center gap-2.5">${t2Avatar(name)}<div class="min-w-0"><div class="font-medium text-slate-700 truncate">${esc(name)}</div><div class="text-xs text-slate-400">${esc(code||'')}</div></div></div>`;
+}
+const T2_ICO_USERS='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19c.8-3 3-5 5.5-5s4.7 2 5.5 5"/><circle cx="17" cy="9" r="2.4"/><path d="M16 14.6c2 .6 3.2 2.3 3.7 4.4"/></svg>';
+const T2_ICO_RULES='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M4 8h16M4 16h16"/><circle cx="9" cy="8" r="2.2" fill="white"/><circle cx="15" cy="16" r="2.2" fill="white"/></svg>';
+const T2_ICO_GEN='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8.5 7.5h7M8.5 12h.01M12 12h.01M15.5 12h.01M8.5 15.5h.01M12 15.5h.01M15.5 15.5h.01M8.5 19h7"/></svg>';
+const T2_ICO_RUNS='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M7 3h8l4 4v14H7z"/><path d="M15 3v4h4M10 13h6M10 17h6"/></svg>';
+function t2CardHead(ico, title, sub, action){
+  return `<div class="flex items-center gap-3 mb-5">
+    <span class="w-10 h-10 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center shrink-0">${ico}</span>
+    <div class="min-w-0 flex-1"><h3 class="font-bold text-slate-800 leading-tight">${title}</h3>
+    ${sub?`<p class="text-xs text-slate-400 mt-0.5">${sub}</p>`:''}</div>
+    ${action||''}
+  </div>`;
+}
+
 function t2AllowSum(s){
   let t = 0;
   const d = s.allowancesDetail || {};
@@ -169,32 +190,27 @@ window.SalaryUI = {
     const { emps, canEdit } = ctx;
     const cid = uid('sal');
     el.innerHTML = `
-      <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.05)] p-6 mb-5">
-        <div class="flex items-center justify-between mb-4">
-          <div><h3 class="font-display font-bold text-slate-800">${t2t('salaryStructures')}</h3>
-          <p class="text-xs text-slate-400 mt-0.5">${t2t('structuresSub')}</p></div>
-          ${canEdit ? `<button class="${btnS}" id="${cid}-add">+ ${t2t('addStructure')}</button>` : ''}
-        </div>
+      <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.04)] p-6 mb-5">
+        ${t2CardHead(T2_ICO_USERS, t2t('salaryStructures'), t2t('structuresSub'),
+          canEdit ? `<button class="${btnS} shrink-0" id="${cid}-add">+ ${t2t('addStructure')}</button>` : '')}
         <div id="${cid}-structs"></div>
       </div>
       ${perm('settings','manage') ? `
-      <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.05)] p-6 mb-5">
-        <h3 class="font-display font-bold text-slate-800 mb-1">${t2t('salaryRules')}</h3>
-        <p class="text-xs text-slate-400 mb-4">${t2t('salaryRulesSub')}</p>
+      <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.04)] p-6 mb-5">
+        ${t2CardHead(T2_ICO_RULES, t2t('salaryRules'), t2t('salaryRulesSub'))}
         <div id="${cid}-rules" class="grid grid-cols-2 md:grid-cols-3 gap-4"></div>
         <div class="flex justify-end mt-4"><button class="${btnP}" id="${cid}-saveRules">${t2t('saveRules')}</button></div>
       </div>` : ''}
-      <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.05)] p-6 mb-5">
-        <h3 class="font-display font-bold text-slate-800 mb-1">${t2t('generateTitle')}</h3>
-        <p class="text-xs text-slate-400 mb-4">${t2t('generateSub')}</p>
+      <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.04)] p-6 mb-5">
+        ${t2CardHead(T2_ICO_GEN, t2t('generateTitle'), t2t('generateSub'))}
         <div class="flex flex-wrap items-end gap-3">
           ${field(t2t('payrollMonth'), 'genMonth', { type: 'month', value: monthISO() })}
           ${canEdit ? `<button class="${btnP}" id="${cid}-gen">${t2t('generate')}</button>` : ''}
         </div>
         <div id="${cid}-genResult" class="mt-5"></div>
       </div>
-      <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.05)] p-6">
-        <h3 class="font-display font-bold text-slate-800 mb-4">${t2t('salaryRuns')}</h3>
+      <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.04)] p-6">
+        ${t2CardHead(T2_ICO_RUNS, t2t('salaryRuns'), '')}
         <div id="${cid}-runs"></div>
       </div>`;
 
@@ -202,7 +218,7 @@ window.SalaryUI = {
       const box = document.getElementById(cid + '-structs');
       const rows = await API.call('listSalaryStructures').catch(() => []);
       box.innerHTML = tableHTML([
-        { label: t2t('employee'), get: s => `<div><div class="font-medium text-slate-700">${esc(s.employeeName)}</div><div class="text-xs text-slate-400">${esc(s.employeeCode)}</div></div>` },
+        { label: t2t('employee'), get: s => t2EmpCell(s.employeeName, s.employeeCode) },
         { label: t2t('basic'), num: 1, get: s => `<span class="tabular-nums">${fmt(s.basic)}</span>` },
         { label: t2t('allowances'), num: 1, get: s => `<span class="tabular-nums text-emerald-600">+ ${fmt(t2AllowSum(s))}</span>` },
         { label: t2t('effectiveFrom'), get: s => `<span class="text-xs text-slate-500">${fmtDate(s.effectiveFrom)}</span>` },
@@ -261,7 +277,7 @@ window.SalaryUI = {
             <span class="text-emerald-600 ml-2">${r.generated.length} ${t2t('generatedOk')}</span>
             ${r.skipped.length ? `<span class="text-amber-600 ml-2">${t2t('skipped')}: ${r.skipped.length}</span>` : ''}</h4>` +
           tableHTML([
-            { label: t2t('employee'), get: g => `<div><div class="font-medium text-slate-700">${esc(g.employeeName)}</div><div class="text-xs text-slate-400">${esc(g.employeeCode)}</div></div>` },
+            { label: t2t('employee'), get: g => t2EmpCell(g.employeeName, g.employeeCode) },
             { label: t2t('present'), num: 1, get: g => fmtNum(g.daysPresent) },
             { label: t2t('absent'), num: 1, get: g => fmtNum(g.daysAbsent) },
             { label: t2t('lateArrivals'), num: 1, get: g => fmtNum(g.lateCount) },
@@ -312,7 +328,7 @@ window.SalaryUI = {
     const m = modal(t2t('salaryRuns') + ' — ' + (slips[0] ? slips[0].month : ''), `<div id="t2slips"></div>`, { wide: true });
     const box = m.el.querySelector('#t2slips');
     box.innerHTML = tableHTML([
-      { label: t2t('employee'), get: p => `<div><div class="font-medium text-slate-700">${esc(p.employeeName)}</div><div class="text-xs text-slate-400">${esc(p.employeeCode)}</div></div>` },
+      { label: t2t('employee'), get: p => t2EmpCell(p.employeeName, p.employeeCode) },
       { label: t2t('basic'), num: 1, get: p => `<span class="tabular-nums">${fmt(p.salary)}</span>` },
       { label: t2t('allowances'), num: 1, get: p => `<span class="tabular-nums text-emerald-600">+${fmt(p.allowances)}</span>` },
       { label: t2t('deductions'), num: 1, get: p => `<span class="tabular-nums text-red-500">−${fmt(p.deductions)}</span>` },

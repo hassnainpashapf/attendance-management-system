@@ -1,9 +1,18 @@
 /* 30_punch.js — Check-In / Check-Out with selfie capture, GPS, site geofence
-   matching, offline queue with auto-sync, client-side duplicate guard. */
+   matching, offline queue with auto-sync, client-side duplicate guard.
+   Verola premium styling. */
 (function(){
 'use strict';
 
 App.nav.push({group:'MAIN', path:'#/punch', label:I18N.t('c4.nav.punch'), labelKey:'c4.nav.punch', icon:'punch', perm:'punch'});
+
+/* Verola tokens (local) */
+const vBtnB='px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold shadow active:scale-[.98] transition';
+const vCard='bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.04)] p-6 anim-fadeUp';
+function vHead(title, actions){
+  return `<div class="flex items-center gap-2 text-[13px] text-slate-400 mb-4 anim-fadeUp"><span class="text-base">⌂</span><a href="#/dashboard" class="hover:text-slate-600">${I18N.t('c4.nav.dashboard')}</a><span>›</span><span class="text-slate-700 font-semibold">${title}</span></div>
+  <div class="flex flex-wrap items-center justify-between gap-3 mb-5 anim-fadeUp"><div><h1 class="font-display text-[26px] font-bold text-slate-800 tracking-tight">${title}</h1><p class="text-sm text-slate-400 mt-1">${I18N.t('c4.punch.sub')}</p></div><div class="flex gap-2 flex-wrap items-center">${actions||''}</div></div>`;
+}
 
 const QKEY='ams_queue', LKEY='ams_lastpunch';
 
@@ -43,11 +52,15 @@ App.routes['#/punch'] = async (el)=>{
   const me=myEmployeeId();
   const empOpts=activeEmps.map(e=>({value:e.id, label:e.name+' ('+e.code+')'}));
 
-  el.innerHTML=pageHead(I18N.t('c4.nav.punch'),I18N.t('c4.punch.sub'),
-    `<span id="${cid}-qstatus"></span>`)+`
+  el.innerHTML=vHead(I18N.t('c4.nav.punch'),`<span id="${cid}-qstatus"></span>`)+`
   <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 max-w-5xl">
-    <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.05)] p-6 anim-fadeUp">
-      <h3 class="font-display font-bold text-slate-800 mb-4">${I18N.t('c4.punch.step1')}</h3>
+    <div class="${vCard}">
+      <div class="flex items-center gap-2.5 mb-4">
+        <span class="w-9 h-9 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center shrink-0">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M12 21s-7-5.5-7-11a7 7 0 0114 0c0 5.5-7 11-7 11z"/><circle cx="12" cy="10" r="2.6"/></svg>
+        </span>
+        <h3 class="font-bold text-slate-800 text-[15px]">${I18N.t('c4.punch.step1')}</h3>
+      </div>
       ${field(I18N.t('c4.common.employee'),'empId',{type:'select',options:empOpts,value:me||'',cls:'mb-4'})}
       <div class="grid grid-cols-2 gap-3 mb-4">
         <div class="rounded-xl bg-slate-50 border border-slate-200/60 p-3">
@@ -60,10 +73,15 @@ App.routes['#/punch'] = async (el)=>{
         </div>
       </div>
       <div id="${cid}-siteinfo" class="mb-4"></div>
-      <div id="${cid}-map" class="h-52 border border-slate-200/70"></div>
+      <div id="${cid}-map" class="h-52 rounded-xl border border-slate-200/70 overflow-hidden"></div>
     </div>
-    <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.05)] p-6 anim-fadeUp">
-      <h3 class="font-display font-bold text-slate-800 mb-4">${I18N.t('c4.punch.step2')}</h3>
+    <div class="${vCard}">
+      <div class="flex items-center gap-2.5 mb-4">
+        <span class="w-9 h-9 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center shrink-0">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M4 8h3l2 8 3-14 3 10 2-4h3"/></svg>
+        </span>
+        <h3 class="font-bold text-slate-800 text-[15px]">${I18N.t('c4.punch.step2')}</h3>
+      </div>
       <div class="rounded-2xl overflow-hidden bg-slate-900 aspect-[4/3] relative mb-4">
         <video id="${cid}-vid" class="w-full h-full object-cover" autoplay playsinline muted></video>
         <canvas id="${cid}-cap" class="hidden"></canvas>
@@ -73,13 +91,13 @@ App.routes['#/punch'] = async (el)=>{
         <button id="${cid}-camon" class="${btnS} flex-1">${I18N.t('c4.punch.enableCam')}</button>
         <button id="${cid}-snap" class="${btnS} flex-1" disabled>${I18N.t('c4.punch.captureSelfie')}</button>
       </div>
-      <div id="${cid}-shot" class="hidden mb-5 flex items-center gap-3">
+      <div id="${cid}-shot" class="hidden mb-5 flex items-center gap-3 p-3 rounded-2xl bg-emerald-50/60 border border-emerald-200/60">
         <img id="${cid}-shotimg" class="w-16 h-16 rounded-xl object-cover border border-slate-200" alt="selfie">
         <div class="text-sm"><div class="font-semibold text-emerald-600">${I18N.t('c4.punch.selfieCaptured')}</div><div class="text-slate-400 text-xs">${I18N.t('c4.punch.selfieCompressed')}</div></div>
       </div>
       <div class="grid grid-cols-2 gap-3">
-        <button id="${cid}-in" class="py-4 rounded-2xl bg-gradient-to-b from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white font-bold text-lg shadow-[0_4px_14px_rgba(16,185,129,.4)] active:scale-[.98] transition disabled:opacity-50">${I18N.t('c4.punch.checkInBtn')}</button>
-        <button id="${cid}-out" class="py-4 rounded-2xl bg-gradient-to-b from-slate-600 to-slate-700 hover:from-slate-700 hover:to-slate-800 text-white font-bold text-lg shadow-[0_4px_14px_rgba(71,85,105,.35)] active:scale-[.98] transition disabled:opacity-50">${I18N.t('c4.punch.checkOutBtn')}</button>
+        <button id="${cid}-in" class="py-4 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-lg shadow active:scale-[.98] transition disabled:opacity-50">${I18N.t('c4.punch.checkInBtn')}</button>
+        <button id="${cid}-out" class="py-4 rounded-2xl bg-white border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-slate-700 font-bold text-lg shadow-sm active:scale-[.98] transition disabled:opacity-50">${I18N.t('c4.punch.checkOutBtn')}</button>
       </div>
       <div id="${cid}-msg" class="mt-4"></div>
     </div>

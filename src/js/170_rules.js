@@ -69,8 +69,7 @@ function t6Editor(cid, r, canEdit){
   if(r.valueType === 'bool'){
     return `<label class="relative inline-flex cursor-pointer items-center${canEdit?'':' opacity-60 pointer-events-none'}">
       <input type="checkbox" id="${cid}-${base}" data-key="${esc(r.key)}" class="sr-only peer"${r.value?' checked':''}${dis}>
-      <span class="block w-11 h-6 rounded-full bg-slate-200 peer-checked:bg-teal-500 transition-colors"></span>
-      <span class="absolute left-0.5 top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform peer-checked:translate-x-5 pointer-events-none"></span>
+      <div class="w-9 h-5 bg-slate-200 peer-checked:bg-teal-600 rounded-full transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:w-4 after:h-4 after:bg-white after:rounded-full after:transition-transform peer-checked:after:translate-x-4 after:shadow"></div>
     </label>`;
   }
   if(r.options && r.options.length){
@@ -87,7 +86,14 @@ function t6Editor(cid, r, canEdit){
 App.routes['#/rules'] = async (el)=>{
   const cid = uid('rules');
   const canEdit = ((Session.user||{}).role === 'admin');
-  el.innerHTML = pageHead(I18N.t('t6.title'), I18N.t('t6.subtitle')) +
+  const V_ICO_ATT='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v5l3 2"/></svg>';
+  const V_ICO_PAY='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M7 15h4"/></svg>';
+  el.innerHTML = `
+    <div class="flex items-center gap-2 text-[13px] text-slate-400 mb-4 anim-fadeUp">
+      <span class="text-base">⌂</span><a href="#/dashboard" class="hover:text-slate-600">Dashboard</a><span>›</span><span class="text-slate-700 font-semibold">${esc(I18N.t('t6.title'))}</span>
+    </div>
+    <div class="mb-6 anim-fadeUp"><h1 class="text-[26px] font-bold text-slate-900 tracking-tight">${esc(I18N.t('t6.title'))}</h1>
+    <p class="text-sm text-slate-400 mt-1">${esc(I18N.t('t6.subtitle'))}</p></div>` +
     `<div id="${cid}-body"><div class="bg-white rounded-2xl border border-slate-200/70 p-6"><div class="h-5 shimmer rounded-xl w-1/4 mb-4"></div><div class="h-24 shimmer rounded-xl"></div></div></div>`;
 
   let rules;
@@ -104,8 +110,12 @@ App.routes['#/rules'] = async (el)=>{
   document.getElementById(cid+'-body').innerHTML = groups.map(g=>{
     const rows = rules.filter(r=>r.group===g);
     if(!rows.length) return '';
-    return `<div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.05)] p-6 mb-4">
-      <h3 class="font-display font-bold text-slate-800 mb-2">${esc(I18N.t('t6.group.'+g))}</h3>
+    const gIco = g==='payroll' ? V_ICO_PAY : V_ICO_ATT;
+    return `<div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.04)] p-6 mb-4">
+      <div class="flex items-center gap-3 mb-2">
+        <span class="w-10 h-10 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center shrink-0">${gIco}</span>
+        <h3 class="font-bold text-slate-800">${esc(I18N.t('t6.group.'+g))}</h3>
+      </div>
       <div class="divide-y divide-slate-100">
       ${rows.map(r=>`
         <div class="flex items-center justify-between gap-6 py-4">
