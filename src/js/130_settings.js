@@ -113,8 +113,10 @@ App.routes['#/settings'] = async (el)=>{
         <div class="grid grid-cols-2 gap-4">
           <div>${field('Device ID','zkt_device_id',{value:z.zkt_device_id||'',ph:'e.g. ZKT-Office-01'})}</div>
           <div>${field('API key','zkt_api_key',{type:'password',value:z.zkt_api_key||'',ph:'secret key for the device'})}</div>
+          <div>${field('Device IP (port-forwarded)','zkt_ip',{value:z.zkt_ip||'',ph:'e.g. 203.0.113.45'})}</div>
+          <div>${field('Device port','zkt_port',{type:'number',value:z.zkt_port||'4370',ph:'4370'})}</div>
         </div>
-        <p class="text-[11px] text-slate-400 mt-2">Point your ZKTeco device (ADMS push) or middleware script at the webhook URL below with this device ID + API key. Employee codes on the device must match employee codes here.</p>
+        <p class="text-[11px] text-slate-400 mt-2">Port-forward your ZKTeco device (TCP port 4370) on your router so it is reachable online, then enter its public IP and port here. A connector on the server polls the device and pushes punches automatically. Employee codes on the device must match employee codes here.</p>
       </div>
       <div class="rounded-xl bg-slate-50 border border-slate-200/70 p-4 mb-4">
         <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Webhook URL (POST JSON here)</div>

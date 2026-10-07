@@ -3123,6 +3123,8 @@ function seedTrack8Tabs_(ss) {
     ['zkt_enabled', '0'],
     ['zkt_device_id', ''],
     ['zkt_api_key', ''],
+    ['zkt_ip', ''],
+    ['zkt_port', '4370'],
     ['zkt_last_sync', '']
   ];
   var have = {};
@@ -3213,6 +3215,8 @@ API.getZktSettings = function (user) {
     zkt_enabled: tsetting_(ss, 'zkt_enabled', '0'),
     zkt_device_id: tsetting_(ss, 'zkt_device_id', ''),
     zkt_api_key: tsetting_(ss, 'zkt_api_key', ''),
+    zkt_ip: tsetting_(ss, 'zkt_ip', ''),
+    zkt_port: tsetting_(ss, 'zkt_port', '4370'),
     zkt_last_sync: tsetting_(ss, 'zkt_last_sync', ''),
     webhookUrl: ScriptApp.getService().getUrl()
   };
@@ -3226,13 +3230,32 @@ API.saveZktSettings = function (user, s) {
   var vals = sh.getDataRange().getValues();
   var keyRow = {};
   for (var i = 1; i < vals.length; i++) keyRow[String(vals[i][0])] = i + 1;
-  ['zkt_enabled', 'zkt_device_id', 'zkt_api_key'].forEach(function (k) {
+  ['zkt_enabled', 'zkt_device_id', 'zkt_api_key', 'zkt_ip', 'zkt_port'].forEach(function (k) {
     if (s[k] === undefined) return;
     if (keyRow[k]) { sh.getRange(keyRow[k], 2).setValue(val_(String(s[k]))); }
     else tappend_(ss, 'settings', { key: k, value: String(s[k]) });
   });
   _bumpCache_(ss);
   return { ok: true };
+};
+/* VPS bridge helper: returns the device connection info for the tenant that
+   owns the given deviceId/apiKey. The VPS poller calls this to discover
+   which IP:port to connect to. No user session needed. */
+API.zktDeviceInfo = function (user, deviceId, apiKey) {
+  var tenants = rows_('tenants');
+  for (var i = 0; i < tenants.length; i++) {
+    try {
+      var tss = SpreadsheetApp.openById(tenants[i].spreadsheetId);
+      if (String(tsetting_(tss, 'zkt_device_id', '')) === String(deviceId) &&
+          String(tsetting_(tss, 'zkt_api_key', '')) === String(apiKey) &&
+          t3On_(tsetting_(tss, 'zkt_enabled', '0'))) {
+        return { ok: true, ip: tsetting_(tss, 'zkt_ip', ''),
+          port: parseInt(tsetting_(tss, 'zkt_port', '4370'), 10) || 4370,
+          tenantId: tenants[i].tenantId };
+      }
+    } catch (e) {}
+  }
+  return { ok: false, error: 'Unknown device or invalid API key' };
 };
 /* Additive-only section for the native Android app. It does NOT modify
    setupTenantSS() and does NOT modify the bodies of API.punch or
