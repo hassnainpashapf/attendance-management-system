@@ -8,8 +8,8 @@ const ok = (name, cond, extra) => {
   if (!cond) failures.push(name);
 };
 (async () => {
-  const html = fs.readFileSync(ROOT + '/deploy/index.html', 'utf8');
-  const code = [...html.matchAll(/<script(?![^>]*\bsrc\b)[^>]*>([\s\S]*?)<\/script>/g)][0][1];
+  const html = fs.readFileSync(ROOT + '/deploy/assembled.html', 'utf8');
+  const code = [...html.matchAll(/<script(?![^>]*\bsrc\b)[^>]*>([\s\S]*?)<\/script>/g)].map(m => m[1]).join('\n');
   const DOCIDS = {};
   class FakeElement {
     constructor(t){ this.tagName='DIV'; this.nodeType=1; this.children=[]; this.style={}; this.dataset={};

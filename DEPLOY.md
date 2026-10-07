@@ -8,10 +8,13 @@ holds tenants + the SaaS superadmin login.
 
 | File | Purpose |
 |---|---|
-| `Code.gs` | Entire backend: `__api` dispatcher, all API functions, seeders |
-| `deploy/index.html` | Built single-file frontend (paste as `index` in Apps Script) |
+| `Code.gs` | Entire backend: `__api` dispatcher, all API functions, seeders (`doGet` reassembles the 3 frontend parts) |
+| `deploy/index.html` | Frontend part 1/3 — paste as `index` in Apps Script (≤150KB, editor-safe) |
+| `deploy/app2.html` | Frontend part 2/3 — paste as `app2` in Apps Script |
+| `deploy/app3.html` | Frontend part 3/3 — paste as `app3` in Apps Script |
+| `deploy/assembled.html` | QA-only fully assembled file — **never** paste this (too big for the editor) |
 | `src/` | Frontend sources (only needed if you change the UI, then re-run `build.py`) |
-| `build.py` | Rebuilds `deploy/index.html` from `src/` + runs all safety guards |
+| `build.py` | Splits `src/` into the 3 deploy HTML files + runs all safety guards |
 | `API_CONTRACT.md` | API/tab/route contract shared by backend and frontend |
 
 ## Deploy (one time, ~10 minutes)
@@ -19,9 +22,13 @@ holds tenants + the SaaS superadmin login.
 1. **Create the registry spreadsheet** in Google Drive (name it e.g. `AMS Registry`).
 2. Open it → **Extensions → Apps Script**. Delete the default `Code.gs` content and
    **paste the entire `Code.gs`** from this project.
-3. In the Apps Script editor click **＋ → HTML** → name the file **`index`** (exactly).
-   Open `deploy/index.html` from this project, copy **all** of it, paste into `index.html`,
-   save (Ctrl/Cmd+S).
+3. In the Apps Script editor create **three** HTML files (**＋ → HTML**):
+   - name one **`index`** → paste **all** of `deploy/index.html`, save (Ctrl/Cmd+S).
+   - name one **`app2`** → paste **all** of `deploy/app2.html`, save.
+   - name one **`app3`** → paste **all** of `deploy/app3.html`, save.
+   (The app JS is split into 3 editor-safe parts; `doGet` reassembles them at
+   runtime. Never paste `deploy/assembled.html` — it is QA-only and too big
+   for the editor.)
 4. In the function dropdown select **`setupRegistry`** → **Run**. Grant permissions
    (Sheets + Drive + external). This creates the `tenants`, `saasUsers` and `auditLog`
    tabs and the superadmin login.
@@ -82,11 +89,13 @@ code + admin login. (Equivalent function: `createTenant` in the API.)
 - **Map not loading** → check internet access to unpkg.com / OpenStreetMap tiles.
 - **Punch flagged out-of-zone** → check the site's lat/lng + radius on the Sites page
   (use the map picker), and that the employee is assigned to the site.
-- After editing `src/`, re-run `python3 build.py` and re-paste `deploy/index.html`.
+- After editing `src/`, re-run `python3 build.py` and re-paste the three
+  `deploy/` files (`index.html` → `index`, `app2.html` → `app2`, `app3.html` → `app3`).
 
 ## Updating the app later
 
 Edit `src/js/*.js` or `src/index.html` → run `python3 build.py` (all guards must pass)
-→ paste the new `deploy/index.html` into the Apps Script `index` file → **Deploy →
-Manage deployments → Edit → New version**. Backend changes: paste the new `Code.gs`
-over the old one (data in the spreadsheets is untouched).
+→ paste the new `deploy/index.html` → `index`, `deploy/app2.html` → `app2`,
+`deploy/app3.html` → `app3` → **Deploy → Manage deployments → Edit → New version**.
+Backend changes: paste the new `Code.gs` over the old one (data in the spreadsheets
+is untouched).

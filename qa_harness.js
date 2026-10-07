@@ -1,4 +1,4 @@
-/* QA harness — headless load test for deploy/index.html (Check 5).
+/* QA harness — headless load test for deploy/assembled.html (Check 5).
  * Loads the COMBINED inline app script with DOM stubs, boots against MockAPI,
  * renders all 15 routes, and asserts zero thrown errors / zero console.error.
  * Run: node qa_harness.js
@@ -8,12 +8,15 @@ const vm = require('vm');
 const { performance } = require('perf_hooks');
 
 const ROOT = '/home/hatch/workspace/attendance-saas';
-const html = fs.readFileSync(ROOT + '/deploy/index.html', 'utf8');
+const html = fs.readFileSync(ROOT + '/deploy/assembled.html', 'utf8');
 
-// Extract ONLY the app's own combined inline block (CDN tags use src=...).
+// Extract the app's inline script blocks (CDN tags use src=...). The built app
+// is split across 3 sequential <script> blocks (see build.py); classic scripts
+// execute in order and share the global lexical scope, so joining the blocks
+// reproduces the combined script exactly.
 const matches = [...html.matchAll(/<script(?![^>]*\bsrc\b)[^>]*>([\s\S]*?)<\/script>/g)];
-if (matches.length !== 1) { console.error('FAIL: expected 1 inline script, found ' + matches.length); process.exit(1); }
-const code = matches[0][1];
+if (matches.length !== 3) { console.error('FAIL: expected 3 inline scripts, found ' + matches.length); process.exit(1); }
+const code = matches.map(m => m[1]).join('\n');
 console.log('inline script bytes:', code.length);
 
 const consoleErrors = [];

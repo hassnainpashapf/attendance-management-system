@@ -57,7 +57,10 @@ var TENANT_TABS = Object.keys(SHEETS).filter(function (k) { return k !== 'tenant
 
 /* ---------------- web app entry ---------------- */
 function doGet() {
-  return HtmlService.createHtmlOutputFromFile('index')
+  var html = HtmlService.createHtmlOutputFromFile('index').getContent();
+  html = html.split('<!--APP_PART_2-->').join(HtmlService.createHtmlOutputFromFile('app2').getContent());
+  html = html.split('<!--APP_PART_3-->').join(HtmlService.createHtmlOutputFromFile('app3').getContent());
+  return HtmlService.createHtmlOutput(html)
     .setTitle('Attendance Management System')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);

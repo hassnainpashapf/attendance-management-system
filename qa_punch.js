@@ -32,8 +32,8 @@ const ok = (name, cond, extra) => {
   }
 
   /* ---------- full-app harness for (b) and (c) ---------- */
-  const html = fs.readFileSync(ROOT + '/deploy/index.html', 'utf8');
-  const code = [...html.matchAll(/<script(?![^>]*\bsrc\b)[^>]*>([\s\S]*?)<\/script>/g)][0][1];
+  const html = fs.readFileSync(ROOT + '/deploy/assembled.html', 'utf8');
+  const code = [...html.matchAll(/<script(?![^>]*\bsrc\b)[^>]*>([\s\S]*?)<\/script>/g)].map(m => m[1]).join('\n');
   const errs = [];
   const DOCIDS = {};
   class FakeElement {

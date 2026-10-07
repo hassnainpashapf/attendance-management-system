@@ -1,0 +1,1719 @@
+<script>
+
+/* ===== 100_payroll.js ===== */
+/* 100_payroll.js — payroll runs, payslips (view/print), advances, final
+   settlement calculator, contractors + bills, pay components. */
+(function(){
+'use strict';
+
+App.nav.push({group:'MONEY', path:'#/payroll', label:'Payroll', icon:'payroll', perm:'payroll'});
+
+App.routes['#/payroll'] = async (el, params)=>{
+  const cid=uid('pay');
+  const tab=(params&&params.tab)||'runs';
+  const canEdit=perm('payroll','edit');
+  el.innerHTML=pageHead('Payroll','Runs, payslips, advances and contractors',
+    `${canEdit?`<button class="${btnS}" id="${cid}-adv">Grant Advance</button><button class="${btnP}" id="${cid}-run">Run Payroll</button>`:''}`)+`
+  <div class="flex gap-2 mb-5 flex-wrap">
+    ${[['runs','Payroll Runs'],['salaries',I18N.t('t2.salaries')],['advances','Advances'],['settlement','Final Settlement'],['contractors','Contractors'],['components','Pay Components']].map(([k,l])=>
+      `<a href="#/payroll${k==='runs'?'':'?tab='+k}" class="px-4 py-2 rounded-xl text-sm font-semibold ${tab===k?'bg-teal-600 text-white shadow':'bg-white text-slate-500 border border-slate-200'}">${l}</a>`).join('')}
+  </div>
+  <div id="${cid}-body"></div>`;
+  const body=document.getElementById(cid+'-body');
+  const emps=await API.call('listEmployees').catch(()=>[]);
+
+  if(tab==='advances'){
+    const rows=await API.call('listAdvances');
+    body.innerHTML=tableHTML([
+      {label:'Employee', get:a=>`<span class="font-medium text-slate-700">${esc(a.employeeName)}</span>`},
+      {label:'Date', get:a=>fmtDate(a.date)},
+      {label:'Amount', num:1, get:a=>`<span class="tabular-nums">${fmt(a.amount)}</span>`},
+      {label:'Recovered', num:1, get:a=>`<span class="tabular-nums text-emerald-600">${fmt(a.recovered)}</span>`},
+      {label:'Balance', num:1, get:a=>`<span class="tabular-nums font-semibold">${fmt(a.balance)}</span>`},
+      {label:'Status', get:a=>a.status==='open'?badge('Open','amber'):badge('Closed','slate')},
+    ], rows, {empty:'No advances granted.'});
+  }
+  else if(tab==='settlement'){
+    body.innerHTML=`<div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.05)] p-6 max-w-2xl">
+      <h3 class="font-display font-bold text-slate-800 mb-1">Final settlement calculator</h3>
+      <p class="text-sm text-slate-400 mb-5">Pro-rata salary for the current month + approved overtime − open advance balances.</p>
+      ${field('Employee','employeeId',{type:'select',options:emps.filter(e=>e.active).map(e=>({value:e.id,label:e.name+' ('+e.code+')'}))})}
+      <button class="${btnP} mt-4" id="${cid}-calc">Calculate</button>
+      <div id="${cid}-result" class="mt-5"></div></div>`;
+    document.getElementById(cid+'-calc').onclick=async()=>{
+      const eid=formVal(body,'employeeId');
+      const r=await API.call('finalSettlement',eid);
+      document.getElementById(cid+'-result').innerHTML=`
+        <div class="rounded-2xl border border-slate-200/70 overflow-hidden">
+          <div class="bg-slate-50 px-5 py-3 border-b border-slate-200/60 font-semibold text-slate-700 text-sm">${esc(r.employee.name)} <span class="text-slate-400 font-normal">· ${esc(r.employee.code)}</span></div>
+          <div class="divide-y divide-slate-50 text-sm">
+            <div class="flex justify-between px-5 py-3"><span class="text-slate-500">Pro-rata salary (this month)</span><span class="tabular-nums font-medium">+ ${fmt(r.proRataSalary)}</span></div>
+            <div class="flex justify-between px-5 py-3"><span class="text-slate-500">Approved overtime pending</span><span class="tabular-nums font-medium">+ ${fmt(r.pendingOvertime)}</span></div>
+            <div class="flex justify-between px-5 py-3"><span class="text-slate-500">Open advance balance (${r.advances.length} advance${r.advances.length===1?'':'s'})</span><span class="tabular-nums font-medium text-red-600">− ${fmt(r.advanceDue)}</span></div>
+            <div class="flex justify-between px-5 py-3.5 bg-teal-50/60"><span class="font-bold text-slate-800">Net payable</span><span class="tabular-nums font-bold text-teal-700 text-base">${fmt(r.netPayable)}</span></div>
+          </div></div>`;
+    };
+  }
+  else if(tab==='contractors'){
+    const cts=await API.call('listContractors');
+    const bills=await API.call('listContractorBills');
+    body.innerHTML=`<div class="flex justify-end mb-3">${canEdit?`<button class="${btnS}" id="${cid}-addCt">+ Contractor</button>`:''}</div>`+
+    tableHTML([
+      {label:'Contractor', get:c=>`<div><div class="font-semibold text-slate-700">${esc(c.name)}</div><div class="text-xs text-slate-400">${esc(c.phone||'')}</div></div>`},
+      {label:'Rate', num:1, get:c=>`<span class="tabular-nums">${fmt(c.rate)}/day</span>`},
+      {label:'Billed total', num:1, get:c=>`<span class="tabular-nums font-semibold">${fmt(c.billed)}</span>`},
+      {label:'Status', get:c=>c.active?badge('Active','emerald'):badge('Inactive','slate')},
+      {label:'', get:c=>canEdit?`<div class="flex gap-1 justify-end"><button class="${btnS} !px-3 !py-1.5 !text-xs" data-bill="${c.id}">+ Bill</button><button class="${btnS} !px-3 !py-1.5 !text-xs" data-cedit="${c.id}">Edit</button></div>`:''},
+    ], cts, {empty:'No contractors yet.'})+
+    `<h3 class="font-display font-bold text-slate-800 mt-8 mb-3">Contractor bills</h3>`+
+    tableHTML([
+      {label:'Month', get:b=>`<span class="tabular-nums">${esc(b.month)}</span>`},
+      {label:'Contractor', get:b=>`<span class="font-medium text-slate-700">${esc(b.contractorName)}</span>`},
+      {label:'Note', get:b=>`<span class="text-xs text-slate-500">${esc(b.note||'—')}</span>`},
+      {label:'Amount', num:1, get:b=>`<span class="tabular-nums font-semibold">${fmt(b.amount)}</span>`},
+      {label:'Status', get:b=>b.status==='pending'?badge('Pending','amber'):b.status==='approved'?badge('Approved','emerald'):badge('Paid','teal')},
+      {label:'', get:b=>canEdit&&b.status==='pending'?`<div class="flex gap-1 justify-end"><button class="${btnS} !px-3 !py-1.5 !text-xs !text-emerald-700" data-bok="${b.id}">Approve</button><button class="${btnS} !px-3 !py-1.5 !text-xs" data-bpaid="${b.id}">Mark paid</button></div>`:''},
+    ], bills, {empty:'No bills yet.'});
+    const addCt=document.getElementById(cid+'-addCt');
+    if(addCt) addCt.onclick=()=>contractorEditor(null);
+    body.querySelectorAll('[data-cedit]').forEach(b=>b.onclick=()=>contractorEditor(cts.find(c=>c.id===b.dataset.cedit)));
+    body.querySelectorAll('[data-bill]').forEach(b=>b.onclick=()=>{
+      const c=cts.find(x=>x.id===b.dataset.bill);
+      const m=modal('New bill — '+c.name,`
+        ${field('Month','month',{type:'month',value:monthISO(),req:true})}
+        <div class="grid grid-cols-2 gap-4 mt-4">${field('Amount (Rs)','amount',{type:'number',min:0,req:true})}</div>
+        <div class="mt-4">${field('Note','note',{type:'textarea',ph:'Work description'})}</div>
+        <div class="flex justify-end gap-2 mt-6"><button class="${btnS}" id="bCancel">Cancel</button><button class="${btnP}" id="bSave">Save bill</button></div>`);
+      m.el.querySelector('#bCancel').onclick=()=>m.close();
+      m.el.querySelector('#bSave').onclick=async()=>{
+        await API.call('saveContractorBill',{contractorId:c.id,month:formVal(m.el,'month'),amount:formNum(m.el,'amount'),note:formVal(m.el,'note')});
+        m.close(); toast('Bill saved','success'); App.route();
+      };
+    });
+    body.querySelectorAll('[data-bok]').forEach(b=>b.onclick=async()=>{ await API.call('decideContractorBill',b.dataset.bok,'approved'); toast('Bill approved','success'); App.route(); });
+    body.querySelectorAll('[data-bpaid]').forEach(b=>b.onclick=async()=>{ await API.call('decideContractorBill',b.dataset.bpaid,'paid'); toast('Bill marked paid','success'); App.route(); });
+  }
+  else if(tab==='components'){
+    const rows=await API.call('listPayComponents');
+    body.innerHTML=(canEdit?`<div class="flex justify-end mb-3"><button class="${btnS}" id="${cid}-addPc">+ Component</button></div>`:'')+tableHTML([
+      {label:'Component', get:c=>`<span class="font-medium text-slate-700">${esc(c.name)}</span>`},
+      {label:'Kind', get:c=>c.kind==='allowance'?badge('Allowance','emerald'):badge('Deduction','red')},
+      {label:'Amount', num:1, get:c=>`<span class="tabular-nums">${fmt(c.amount)}</span>`},
+      {label:'Approved', get:c=>c.approved?badge('Yes','teal'):badge('No','slate')},
+      {label:'', get:c=>canEdit?`<div class="flex gap-1 justify-end"><button class="${btnS} !px-3 !py-1.5 !text-xs" data-pcedit="${c.id}">Edit</button><button class="${btnS} !px-3 !py-1.5 !text-xs !text-red-600" data-pcdel="${c.id}">Delete</button></div>`:''},
+    ], rows, {empty:'No pay components.'});
+    const addPc=document.getElementById(cid+'-addPc');
+    if(addPc) addPc.onclick=()=>componentEditor(null);
+    body.querySelectorAll('[data-pcedit]').forEach(b=>b.onclick=()=>componentEditor(rows.find(c=>c.id===b.dataset.pcedit)));
+    body.querySelectorAll('[data-pcdel]').forEach(b=>b.onclick=async()=>{
+      if(!await confirmDlg('Delete component?','It will no longer apply to future payroll runs.','Delete')) return;
+      await API.call('deletePayComponent',b.dataset.pcdel); toast('Deleted','success'); App.route();
+    });
+  }
+  else if(tab==='salaries'){
+    /* Track 2: auto salary from attendance (src/js/155_salary.js) */
+    await SalaryUI.renderSalariesTab(body, { emps, canEdit });
+  }
+  else{
+    /* runs */
+    const runs=await API.call('listPayrollRuns');
+    body.innerHTML=tableHTML([
+      {label:'Month', get:r=>`<span class="font-semibold tabular-nums">${esc(r.month)}</span>`},
+      {label:'Created', get:r=>`<span class="text-xs text-slate-500">${esc(r.createdAt)} · ${esc(r.createdBy)}</span>`},
+      {label:'Payslips', num:1, get:r=>fmtNum(r.slipCount)},
+      {label:'Total net', num:1, get:r=>`<span class="tabular-nums font-semibold">${fmt(r.totalNet)}</span>`},
+      {label:'Status', get:r=>badge(r.status==='finalized'?'Finalized':'Draft', r.status==='finalized'?'teal':'slate')},
+      {label:'', get:r=>`<div class="flex gap-1 justify-end"><button class="${btnS} !px-3 !py-1.5 !text-xs" data-view="${r.id}">View payslips</button></div>`},
+    ], runs, {empty:'No payroll runs yet — run your first payroll.'});
+    body.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>viewRun(b.dataset.view));
+  }
+
+  async function viewRun(runId){
+    const runs=await API.call('listPayrollRuns');
+    const run=runs.find(r=>r.id===runId);
+    const m=modal('Payroll — '+run.month,`<div id="psBody"></div>`,{wide:true});
+    const pb=m.el.querySelector('#psBody');
+    /* listPayslips returns flat enriched slips for the run (id, employeeName/Code, salary, allowances, deductions, advanceRecovery, net, paid) */
+    const slips=await API.call('listPayslips',runId);
+    pb.innerHTML=tableHTML([
+      {label:'Employee', get:s=>`<div><div class="font-medium text-slate-700">${esc(s.employeeName)}</div><div class="text-xs text-slate-400">${esc(s.employeeCode)}</div></div>`},
+      {label:'Salary', num:1, get:s=>`<span class="tabular-nums">${fmt(s.salary)}</span>`},
+      {label:'Allow.', num:1, get:s=>`<span class="tabular-nums text-emerald-600">+${fmtNum(s.allowances)}</span>`},
+      {label:'Deduct.', num:1, get:s=>`<span class="tabular-nums text-red-500">−${fmtNum(s.deductions)}</span>`},
+      {label:'Advance', num:1, get:s=>`<span class="tabular-nums text-amber-600">−${fmtNum(s.advanceRecovery)}</span>`},
+      {label:'Net', num:1, get:s=>`<span class="tabular-nums font-bold">${fmt(s.net)}</span>`},
+      {label:'', get:s=>`<div class="flex gap-1 justify-end">
+        <button class="${btnS} !px-3 !py-1.5 !text-xs" data-ps="${s.id}">Payslip</button>
+        ${!s.paid&&canEdit?`<button class="${btnS} !px-3 !py-1.5 !text-xs !text-emerald-700" data-paid="${s.id}">Mark paid</button>`:s.paid?badge('Paid','teal'):''}</div>`},
+    ], slips, {empty:'No payslips in this run.'});
+    pb.querySelectorAll('[data-ps]').forEach(b=>b.onclick=async()=>{
+      const r=await API.call('getPayslip',b.dataset.ps);
+      payslipModal({employeeName:r.employee.name, employeeCode:r.employee.code, month:r.run.month,
+        designation:r.employee.designation, department:r.employee.departmentName||r.employee.department,
+        salary:r.payslip.salary, allowances:r.payslip.allowances, deductions:r.payslip.deductions,
+        advanceRecovery:r.payslip.advanceRecovery, net:r.payslip.net, paid:r.payslip.paid});
+    });
+    pb.querySelectorAll('[data-paid]').forEach(b=>b.onclick=async()=>{
+      await API.call('markPayslipPaid',b.dataset.paid); toast('Marked paid','success'); m.close(); App.route();
+    });
+  }
+
+  function payslipModal(s){
+    const m=modal('Payslip — '+s.employeeName,`
+      <div id="psPrint">
+        <div class="text-center mb-5">
+          <div class="font-display font-bold text-lg text-slate-800">Attendance Management System</div>
+          <div class="text-xs text-slate-400">Payslip for ${esc(s.month)} · ${esc(s.employeeName)} (${esc(s.employeeCode)})</div>
+          <div class="text-xs text-slate-400">${esc(s.designation||'')} · ${esc(s.department||'')}</div>
+        </div>
+        <table class="w-full text-sm"><tbody class="divide-y divide-slate-100">
+          <tr><td class="py-2 text-slate-500">Basic salary</td><td class="py-2 text-right tabular-nums">${fmt(s.salary)}</td></tr>
+          <tr><td class="py-2 text-slate-500">Allowances</td><td class="py-2 text-right tabular-nums text-emerald-600">+ ${fmt(s.allowances)}</td></tr>
+          <tr><td class="py-2 text-slate-500">Deductions</td><td class="py-2 text-right tabular-nums text-red-500">− ${fmt(s.deductions)}</td></tr>
+          <tr><td class="py-2 text-slate-500">Advance recovery</td><td class="py-2 text-right tabular-nums text-amber-600">− ${fmt(s.advanceRecovery)}</td></tr>
+          <tr><td class="py-2.5 font-bold text-slate-800">Net pay</td><td class="py-2.5 text-right tabular-nums font-bold text-teal-700 text-base">${fmt(s.net)}</td></tr>
+        </tbody></table>
+        <div class="mt-3 text-center">${s.paid?badge('Paid','teal'):badge('Unpaid','amber')}</div>
+      </div>
+      <div class="flex justify-end gap-2 mt-6"><button class="${btnS}" id="pClose">Close</button><button class="${btnP}" id="pPrint">Print</button></div>`);
+    m.el.querySelector('#pClose').onclick=()=>m.close();
+    m.el.querySelector('#pPrint').onclick=()=>printHTML(m.el.querySelector('#psPrint').innerHTML,'Payslip '+s.employeeName+' '+s.month);
+  }
+
+  function contractorEditor(c){
+    const isNew=!c; c=c||{name:'',company:'',phone:'',rate:0,active:true};
+    const m=modal(isNew?'Add Contractor':'Edit Contractor',`
+      <div class="grid grid-cols-2 gap-4">
+        <div class="col-span-2">${field('Contractor / firm name','name',{value:c.name,req:true})}</div>
+        ${field('Company','company',{value:c.company||''})}
+        ${field('Phone','phone',{value:c.phone||''})}
+        ${field('Daily rate (Rs)','rate',{value:c.rate,type:'number',min:0})}
+        <div class="flex items-end pb-2.5">${field('Active','active',{type:'checkbox',value:c.active})}</div>
+      </div>
+      <div class="flex justify-end gap-2 mt-6"><button class="${btnS}" id="cCancel">Cancel</button><button class="${btnP}" id="cSave">Save</button></div>`);
+    m.el.querySelector('#cCancel').onclick=()=>m.close();
+    m.el.querySelector('#cSave').onclick=async()=>{
+      const d=collectForm(m.el); if(!d.name){toast('Name required','warn');return;}
+      await API.call('saveContractor',{...(isNew?{}:{id:c.id}),...d}); m.close(); toast('Contractor saved','success'); App.route();
+    };
+  }
+
+  function componentEditor(c){
+    const isNew=!c; c=c||{name:'',kind:'allowance',amount:0,appliesTo:'all',approved:true};
+    const m=modal(isNew?'Add Pay Component':'Edit Pay Component',`
+      <div class="grid grid-cols-2 gap-4">
+        <div class="col-span-2">${field('Component name','name',{value:c.name,req:true})}</div>
+        ${field('Kind','kind',{type:'select',value:c.kind,options:[{value:'allowance',label:'Allowance'},{value:'deduction',label:'Deduction'}]})}
+        ${field('Amount (Rs)','amount',{value:c.amount,type:'number',min:0})}
+        <div class="col-span-2 flex items-end pb-2.5">${field('Approved (applies to payroll runs)','approved',{type:'checkbox',value:c.approved})}</div>
+      </div>
+      <div class="flex justify-end gap-2 mt-6"><button class="${btnS}" id="cCancel">Cancel</button><button class="${btnP}" id="cSave">Save</button></div>`);
+    m.el.querySelector('#cCancel').onclick=()=>m.close();
+    m.el.querySelector('#cSave').onclick=async()=>{
+      const d=collectForm(m.el); if(!d.name){toast('Name required','warn');return;}
+      await API.call('savePayComponent',{...(isNew?{}:{id:c.id}),...d}); m.close(); toast('Component saved','success'); App.route();
+    };
+  }
+
+  /* header actions */
+  const runB=document.getElementById(cid+'-run');
+  if(runB) runB.onclick=()=>{
+    const m=modal('Run Payroll',`
+      ${field('Payroll month','month',{type:'month',value:monthISO(),req:true})}
+      <div class="max-h-64 overflow-y-auto border border-slate-200/70 rounded-2xl mt-4 mb-4 divide-y divide-slate-50">
+        <label class="flex items-center gap-3 px-4 py-2.5 bg-slate-50 font-semibold text-sm text-slate-600 cursor-pointer">
+          <input type="checkbox" id="allEmp" checked class="w-4 h-4 rounded accent-teal-600"> Select all</label>
+        ${emps.filter(e=>e.active).map(e=>`<label class="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 cursor-pointer">
+          <input type="checkbox" name="pemp" value="${e.id}" checked class="w-4 h-4 rounded accent-teal-600">
+          <span class="text-sm font-medium text-slate-700">${esc(e.name)}</span><span class="text-xs text-slate-400 ml-auto tabular-nums">${fmt(e.salary)}</span></label>`).join('')}
+      </div>
+      <div class="flex justify-end gap-2"><button class="${btnS}" id="pCancel">Cancel</button><button class="${btnP}" id="pGo">Run payroll</button></div>`);
+    m.el.querySelector('#pCancel').onclick=()=>m.close();
+    m.el.querySelector('#allEmp').onchange=e=>m.el.querySelectorAll('[name="pemp"]').forEach(x=>x.checked=e.target.checked);
+    m.el.querySelector('#pGo').onclick=async()=>{
+      const ids=[...m.el.querySelectorAll('[name="pemp"]:checked')].map(x=>x.value);
+      if(!ids.length){ toast('Select at least one employee','warn'); return; }
+      const r=await API.call('runPayroll',formVal(m.el,'month'),ids);
+      m.close(); toast('Payroll run created for '+r.month,'success'); App.route();
+    };
+  };
+  const advB=document.getElementById(cid+'-adv');
+  if(advB) advB.onclick=()=>{
+    const m=modal('Grant Advance',`
+      <div class="grid grid-cols-1 gap-4">
+        ${field('Employee','employeeId',{type:'select',options:emps.filter(e=>e.active).map(e=>({value:e.id,label:e.name}))})}
+        ${field('Amount (Rs)','amount',{type:'number',min:1,req:true})}
+        ${field('Installments','installments',{type:'number',value:3,min:1})}
+      </div>
+      <div class="flex justify-end gap-2 mt-6"><button class="${btnS}" id="aCancel">Cancel</button><button class="${btnP}" id="aGo">Grant</button></div>`);
+    m.el.querySelector('#aCancel').onclick=()=>m.close();
+    m.el.querySelector('#aGo').onclick=async()=>{
+      const d=collectForm(m.el);
+      if(!d.amount){toast('Amount required','warn');return;}
+      await API.call('grantAdvance',d.employeeId,d.amount,d.installments);
+      m.close(); toast('Advance granted','success'); location.hash='#/payroll?tab=advances'; App.route();
+    };
+  };
+};
+})();
+
+
+/* ===== 10_auth.js ===== */
+/* 10_auth.js — split-screen login: Company code + username + password. */
+(function(){
+'use strict';
+
+const LOGOMARK=`<span class="w-10 h-10 rounded-2xl bg-gradient-to-br from-teal-400 to-emerald-600 flex items-center justify-center text-white shadow-[0_4px_12px_rgba(13,148,136,.4)] shrink-0">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" class="w-5 h-5"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3.5 2"/></svg></span>`;
+
+function loginPage(){
+  document.body.className='min-h-screen bg-[#f6f8fa]';
+  document.body.innerHTML=`
+  <div class="min-h-screen flex">
+    <div class="hidden lg:flex w-[46%] relative overflow-hidden bg-gradient-to-br from-teal-700 via-teal-800 to-emerald-900 text-white">
+      <div class="absolute inset-0 login-pattern opacity-60"></div>
+      <div class="blob absolute -bottom-24 -left-24 w-[28rem] h-[28rem] rounded-full bg-teal-400/25 blur-3xl"></div>
+      <div class="blob absolute -top-24 -right-24 w-[28rem] h-[28rem] rounded-full bg-emerald-300/20 blur-3xl" style="animation-delay:-4s"></div>
+      <div class="blob absolute top-1/3 left-1/4 w-72 h-72 rounded-full bg-cyan-300/15 blur-3xl" style="animation-delay:-7s"></div>
+      <div class="relative z-10 flex flex-col justify-between p-12 w-full">
+        <div class="flex items-center gap-3">${LOGOMARK}
+          <div><div class="font-display font-bold text-xl">${I18N.t('c4.auth.brand')}</div>
+          <div class="text-teal-200/70 text-xs">${I18N.t('c4.auth.tagline')}</div></div>
+        </div>
+        <div>
+          <h2 class="font-display text-4xl font-bold leading-tight mb-4">${I18N.t('c4.auth.heroTitle')}</h2>
+          <p class="text-teal-100/70 max-w-sm mb-8">${I18N.t('c4.auth.heroSub')}</p>
+          <div class="space-y-3 text-sm">
+            ${[I18N.t('c4.auth.feat1'),I18N.t('c4.auth.feat2'),I18N.t('c4.auth.feat3')].map(t=>`
+            <div class="flex items-center gap-3"><span class="w-6 h-6 rounded-full bg-white/15 flex items-center justify-center text-teal-100">✓</span><span class="text-teal-50/90">${t}</span></div>`).join('')}
+          </div>
+        </div>
+        <div class="text-teal-200/50 text-xs">${I18N.t('c4.auth.secureNote')}</div>
+      </div>
+    </div>
+    <div class="flex-1 flex items-center justify-center p-6 relative">
+      <div class="absolute inset-0 bg-gradient-to-br from-teal-50/60 via-transparent to-emerald-50/40 pointer-events-none"></div>
+      <div class="relative w-full max-w-sm anim-fadeUp bg-white/70 backdrop-blur-xl border border-white/60 shadow-[0_20px_60px_-15px_rgba(13,148,136,.25)] rounded-3xl p-8">
+        <div class="lg:hidden flex items-center gap-3 mb-8 justify-center">${LOGOMARK}
+          <div class="font-display font-bold text-xl text-slate-800">${I18N.t('c4.auth.brand')}</div>
+        </div>
+        <h1 class="font-display text-3xl font-bold text-slate-800 tracking-tight">${I18N.t('c4.auth.welcomeBack')}</h1>
+        <p class="text-sm text-slate-400 mt-1.5 mb-8">${I18N.t('c4.auth.signInSub')}</p>
+        <div id="lerr" class="hidden mb-4 text-sm text-red-600 bg-red-50 border border-red-200/70 rounded-xl px-4 py-3"></div>
+        <label class="block mb-4"><span class="block text-xs font-semibold text-slate-500 mb-1.5 tracking-wide">${I18N.t('c4.auth.companyCode')}</span>
+          <input id="lc" class="bg-white border border-slate-200 rounded-xl px-4 py-3 w-full text-sm uppercase focus:ring-2 focus:ring-teal-500/40 focus:border-teal-500 focus:outline-none transition" placeholder="DEMO"></label>
+        <label class="block mb-4"><span class="block text-xs font-semibold text-slate-500 mb-1.5 tracking-wide">${I18N.t('c4.auth.username')}</span>
+          <input id="lu" class="bg-white border border-slate-200 rounded-xl px-4 py-3 w-full text-sm focus:ring-2 focus:ring-teal-500/40 focus:border-teal-500 focus:outline-none transition" placeholder="admin"></label>
+        <label class="block mb-6"><span class="block text-xs font-semibold text-slate-500 mb-1.5 tracking-wide">${I18N.t('c4.auth.password')}</span>
+          <input id="lp" type="password" class="bg-white border border-slate-200 rounded-xl px-4 py-3 w-full text-sm focus:ring-2 focus:ring-teal-500/40 focus:border-teal-500 focus:outline-none transition" placeholder="••••••••"></label>
+        <button id="lb" class="w-full py-3 rounded-xl bg-gradient-to-b from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700 text-white font-semibold shadow-[0_4px_14px_rgba(13,148,136,.4)] active:scale-[.99] transition">${I18N.t('c4.auth.signIn')}</button>
+        <p class="text-xs text-slate-400 text-center mt-6">${I18N.t('c4.auth.demoAccess')}<span class="font-mono bg-slate-100 px-1.5 py-0.5 rounded">DEMO / admin / admin123</span></p>
+        <p class="text-[11px] text-slate-400 text-center mt-2">${I18N.t('c4.auth.superadminNote')}<span class="font-mono bg-slate-100 px-1.5 py-0.5 rounded">ADMIN / superadmin / admin123</span></p>
+      </div>
+    </div>
+  </div>`;
+  const go=async()=>{
+    const err=document.getElementById('lerr'); err.classList.add('hidden');
+    const btn=document.getElementById('lb'); btn.disabled=true; btn.innerHTML='<span class="spinner"></span>';
+    try{
+      const r=await API.call('login',
+        document.getElementById('lc').value.trim(),
+        document.getElementById('lu').value.trim(),
+        document.getElementById('lp').value);
+      if(r&&r.user){ Session.user={...r.user, token:r.token}; }
+      Session.bootstrap=await API.call('getBootstrap');
+      const role=Session.user.role;
+      location.hash = role==='superadmin' ? '#/tenants' : role==='employee' ? '#/punch' : '#/dashboard';
+      App.boot();
+    }catch(e){ err.textContent=e.message||I18N.t('c4.auth.loginFailed'); err.classList.remove('hidden'); btn.disabled=false; btn.textContent=I18N.t('c4.auth.signIn'); }
+  };
+  document.getElementById('lb').onclick=go;
+  ['lc','lu','lp'].forEach(id=>document.getElementById(id).addEventListener('keydown',e=>{if(e.key==='Enter')go();}));
+}
+
+window.loginPage=loginPage; App.LOGOMARK=LOGOMARK;
+})();
+
+
+/* ===== 110_documents.js ===== */
+/* 110_documents.js — employee documents with expiry alerts and days-left badges. */
+(function(){
+'use strict';
+
+App.nav.push({group:'PEOPLE', path:'#/documents', label:I18N.t('c4.nav.documents'), labelKey:'c4.nav.documents', icon:'documents', perm:'documents'});
+
+App.routes['#/documents'] = async (el)=>{
+  const cid=uid('doc');
+  const canEdit=perm('documents','edit');
+  el.innerHTML=pageHead(I18N.t('c4.nav.documents'),I18N.t('c4.docs.sub'),
+    `${canEdit?`<button class="${btnP}" id="${cid}-add">${I18N.t('c4.docs.addDoc')}</button>`:''}`)+
+  `<div id="${cid}-alerts" class="mb-4"></div><div id="${cid}-body"></div>`;
+  const body=document.getElementById(cid+'-body');
+  const alertsEl=document.getElementById(cid+'-alerts');
+  const emps=await API.call('listEmployees').catch(()=>[]);
+
+  async function load(){
+    const rows=await API.call('listDocuments');
+    const exp=await API.call('getExpiringDocuments');
+    alertsEl.innerHTML=exp.length?`
+      <div class="bg-amber-50/70 border border-amber-200/70 rounded-2xl p-5 anim-fadeUp">
+        <div class="font-display font-bold text-amber-800 text-sm mb-3">${I18N.t('c4.docs.expiringN').replace('{n}',exp.length)}</div>
+        <div class="flex flex-wrap gap-2">${exp.map(d=>`
+          <span class="inline-flex items-center gap-2 bg-white border border-amber-200/70 rounded-xl px-3 py-1.5 text-xs">
+            <span class="font-semibold text-slate-700">${esc(d.title)}</span>
+            <span class="text-slate-400">${esc(d.employeeName)}</span>
+            ${d.daysLeft<0?badge(I18N.t('c4.common.expired'),'red'):d.daysLeft<=7?badge(I18N.t('c4.common.daysLeftN').replace('{n}',d.daysLeft),'red'):badge(I18N.t('c4.common.daysLeftN').replace('{n}',d.daysLeft),'amber')}
+          </span>`).join('')}</div>
+      </div>`:'';
+    body.innerHTML=tableHTML([
+      {label:I18N.t('c4.docs.colDocument'), get:d=>`<span class="font-medium text-slate-700">${esc(d.title)}</span>`},
+      {label:I18N.t('c4.common.employee'), get:d=>esc(d.employeeName||'—')},
+      {label:I18N.t('c4.docs.colExpiry'), get:d=>`<span class="tabular-nums">${fmtDate(d.expiryDate)}</span>`},
+      {label:I18N.t('c4.docs.colDaysLeft'), get:d=>d.daysLeft<0?badge(I18N.t('c4.common.expired'),'red'):d.daysLeft<=7?badge(I18N.t('c4.common.daysLeftN').replace('{n}',d.daysLeft),'red'):d.daysLeft<=30?badge(I18N.t('c4.common.daysLeftN').replace('{n}',d.daysLeft),'amber'):badge(I18N.t('c4.common.daysLeftN').replace('{n}',d.daysLeft),'teal')},
+      {label:'', get:d=>canEdit?`<div class="flex gap-1 justify-end">
+        <button class="${btnS} !px-3 !py-1.5 !text-xs" data-dedit="${d.id}">${I18N.t('c4.common.edit')}</button>
+        <button class="${btnS} !px-3 !py-1.5 !text-xs !text-red-600" data-ddel="${d.id}">${I18N.t('c4.common.delete')}</button></div>`:''},
+    ], rows, {empty:I18N.t('c4.docs.emptyDocs')});
+    body.querySelectorAll('[data-ddel]').forEach(b=>b.onclick=async()=>{
+      if(!await confirmDlg(I18N.t('c4.docs.delDocTitle'),I18N.t('c4.emp.cannotUndo'),I18N.t('c4.common.delete'))) return;
+      await API.call('deleteDocument',b.dataset.ddel); toast(I18N.t('c4.emp.deleted'),'success'); load();
+    });
+    body.querySelectorAll('[data-dedit]').forEach(b=>b.onclick=()=>{
+      const d=rows.find(x=>x.id===b.dataset.dedit);
+      openEditor(d);
+    });
+  }
+  function openEditor(d){
+    const isNew=!d; d=d||{employeeId:emps[0]?emps[0].id:'',title:'',expiryDate:todayISO()};
+    const m=modal(isNew?I18N.t('c4.docs.addDocTitle'):I18N.t('c4.docs.editDocTitle'),`
+      <div class="grid grid-cols-1 gap-4">
+        ${field(I18N.t('c4.common.employee'),'employeeId',{type:'select',value:d.employeeId,options:emps.filter(e=>e.active).map(e=>({value:e.id,label:e.name}))})}
+        ${field(I18N.t('c4.docs.fDocTitle'),'title',{value:d.title,req:true,ph:I18N.t('c4.docs.phDocTitle')})}
+        ${field(I18N.t('c4.docs.fExpiryDate'),'expiryDate',{value:d.expiryDate,type:'date',req:true})}
+      </div>
+      <div class="flex justify-end gap-2 mt-6"><button class="${btnS}" id="dCancel">${I18N.t('c4.common.cancel')}</button><button class="${btnP}" id="dSave">${I18N.t('c4.common.save')}</button></div>`);
+    m.el.querySelector('#dCancel').onclick=()=>m.close();
+    m.el.querySelector('#dSave').onclick=async()=>{
+      const data=collectForm(m.el);
+      if(!data.title||!data.expiryDate){toast(I18N.t('c4.docs.titleExpiryRequired'),'warn');return;}
+      await API.call('saveDocument',{...(isNew?{}:{id:d.id}),...data});
+      m.close(); toast(I18N.t('c4.docs.docSaved'),'success'); load();
+    };
+  }
+  const addB=document.getElementById(cid+'-add'); if(addB) addB.onclick=()=>openEditor(null);
+  await load();
+};
+})();
+
+
+/* ===== 11_layout.js ===== */
+/* 11_layout.js — shell: white sidebar with teal active pills, topbar with user
+   menu + impersonation banner, hash router. */
+(function(){
+'use strict';
+
+const NAVGROUPS=[
+  {key:'MAIN',label:I18N.t('c4.nav.gMain'),labelKey:'c4.nav.gMain'},
+  {key:'WORKFORCE',label:I18N.t('c4.nav.gWorkforce'),labelKey:'c4.nav.gWorkforce'},
+  {key:'PEOPLE',label:I18N.t('c4.nav.gPeople'),labelKey:'c4.nav.gPeople'},
+  {key:'MONEY',label:I18N.t('c4.nav.gMoney'),labelKey:'c4.nav.gMoney'},
+  {key:'SYSTEM',label:I18N.t('c4.nav.gSystem'),labelKey:'c4.nav.gSystem'},
+];
+const _svg=(inner)=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5 shrink-0">${inner}</svg>`;
+const ICONS={
+  dashboard:_svg('<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>'),
+  punch:_svg('<circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3.5 2"/>'),
+  attendance:_svg('<rect x="3" y="5" width="18" height="16" rx="2.5"/><path d="M3 10h18M8 3v4M16 3v4"/><path d="M9 15l2 2 4-4"/>'),
+  employees:_svg('<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.2 3.4-5.5 6.5-5.5s5.7 2.3 6.5 5.5"/><path d="M16 4.6a3.5 3.5 0 010 6.8M17.8 14.9c2 .7 3.2 2.6 3.7 5.1"/>'),
+  sites:_svg('<path d="M12 21s-7-5.6-7-11a7 7 0 0114 0c0 5.4-7 11-7 11z"/><circle cx="12" cy="10" r="2.6"/>'),
+  shifts:_svg('<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>'),
+  leave:_svg('<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/><path d="M9.5 13h5M9.5 16.5h3.5"/>'),
+  overtime:_svg('<path d="M12 3v10.5"/><path d="M5 6.5l7-3 7 3"/><circle cx="12" cy="17" r="4.5"/>'),
+  payroll:_svg('<rect x="3" y="8" width="18" height="12" rx="2.5"/><path d="M9 8V6.2A1.7 1.7 0 0110.7 4.5h2.6a1.7 1.7 0 011.7 1.7V8M3 13.5h18"/>'),
+  documents:_svg('<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4M9 13h6M9 16.5h6"/>'),
+  reports:_svg('<path d="M4 4v16h16"/><path d="M9 16v-4M13 16V8M17 16v-6"/>'),
+  settings:_svg('<circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2.6M12 18.6v2.6M2.8 12h2.6M18.6 12h2.6M5.5 5.5l1.8 1.8M16.7 16.7l1.8 1.8M18.5 5.5l-1.8 1.8M7.3 16.7l-1.8 1.8"/>'),
+  tenants:_svg('<path d="M4 21V9.5l5 3v-3l5 3V6l5-2.5V21z"/><path d="M2.5 21h19"/>'),
+};
+
+async function ensureBootstrap(){
+  if(!Session.user) return false;
+  if(!Session.bootstrap){
+    try{ Session.bootstrap=await API.call('getBootstrap'); }
+    catch(e){ Session.clear(); return false; }
+  }
+  return true;
+}
+
+function shellHTML(){
+  const imp=Session.impersonating;
+  document.body.className='bg-[#f6f8fa] min-h-screen text-slate-700';
+  document.body.innerHTML=`
+  ${imp?`<div class="bg-amber-500 text-white text-sm px-4 py-2.5 flex items-center justify-center gap-3 sticky top-0 z-50">
+    <span class="font-semibold">${I18N.t('c4.layout.impersonating').replace('{name}',esc(Session.user.name))}</span>
+    <button id="stopImp" class="bg-white/20 hover:bg-white/30 rounded-lg px-3 py-1 text-xs font-bold transition">${I18N.t('c4.layout.stopImpersonation')}</button>
+  </div>`:''}
+  <div class="flex min-h-screen">
+    <aside id="side" class="w-[248px] shrink-0 bg-white border-r border-slate-200/70 flex flex-col fixed inset-y-0 z-40 transition-transform -translate-x-full lg:translate-x-0 ${imp?'top-[41px]':''}">
+      <div class="px-5 pt-6 pb-5 flex items-center gap-3">${App.LOGOMARK}
+        <div><div class="font-display font-bold text-[15px] text-slate-800 leading-tight">${I18N.t('c4.layout.brand1')}</div>
+        <div class="text-[11px] text-slate-400">${I18N.t('c4.layout.brand2')}</div></div>
+      </div>
+      <nav id="nav" class="flex-1 overflow-y-auto px-3 pb-4 space-y-6"></nav>
+      <div class="p-3 m-3 rounded-2xl bg-slate-50 border border-slate-200/60">
+        <div class="flex items-center gap-3">
+          <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-teal-400 to-emerald-600 text-white flex items-center justify-center font-bold text-sm" id="uAv">A</div>
+          <div class="flex-1 min-w-0"><div class="text-sm font-semibold text-slate-700 truncate" id="uName">—</div>
+          <div class="text-[11px] text-slate-400 capitalize" id="uRole">—</div></div>
+          <button id="logout" title="${I18N.t('c4.layout.signOut')}" class="w-8 h-8 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 flex items-center justify-center transition" aria-label="${I18N.t('c4.layout.signOut')}">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" class="w-[18px] h-[18px]"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/></svg></button>
+        </div>
+      </div>
+    </aside>
+    <div class="flex-1 lg:ml-[248px] min-w-0">
+      <header class="sticky top-0 ${imp?'top-[41px]':''} z-30 bg-white/80 backdrop-blur-lg border-b border-slate-200/70 px-4 lg:px-8 py-3 flex items-center gap-2.5">
+        <button id="menuBtn" class="lg:hidden w-9 h-9 rounded-xl hover:bg-slate-100 flex items-center justify-center text-slate-600">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" class="w-5 h-5"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+        <div id="crumb" class="font-display font-bold text-slate-800 text-[17px] hidden sm:block truncate"></div>
+        <div class="flex-1"></div>
+        <button id="punchBtn" class="${perm('punch')?'':'hidden'} items-center gap-1.5 px-4 py-2.5 rounded-xl bg-gradient-to-b from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700 text-white text-sm font-semibold shadow-[0_2px_8px_rgba(13,148,136,.35)] active:scale-[.98] transition hidden sm:flex">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" class="w-4 h-4"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3.5 2"/></svg>${I18N.t('c4.layout.punchInOut')}</button>
+        <div class="relative">
+          <button id="avatarBtn" class="w-10 h-10 rounded-xl bg-gradient-to-br from-teal-400 to-emerald-600 text-white flex items-center justify-center font-bold text-sm shadow-sm hover:shadow transition"></button>
+          <div id="avatarDrop" class="hidden absolute right-0 mt-2 w-56 bg-white rounded-2xl border border-slate-200/70 shadow-xl z-50 overflow-hidden anim-scaleIn"></div>
+        </div>
+      </header>
+      <main id="view" class="p-4 lg:p-8 max-w-[1440px] mx-auto"></main>
+      <footer class="px-8 pb-6 text-center text-[11px] text-slate-400">${I18N.t('c4.layout.footer')}</footer>
+    </div>
+  </div>
+  <div id="sideOv" class="fixed inset-0 bg-slate-900/40 backdrop-blur-[1px] z-30 hidden lg:hidden"></div>`;
+  const u=Session.user, b=Session.bootstrap||{};
+  document.getElementById('uName').textContent=u.name;
+  document.getElementById('uRole').textContent=u.role;
+  document.getElementById('uAv').textContent=(u.name||'A')[0].toUpperCase();
+  document.getElementById('logout').onclick=()=>{ Session.clear(); location.hash='#/login'; boot(); };
+  const pb=document.getElementById('punchBtn');
+  if(pb) pb.onclick=()=>location.hash='#/punch';
+  const side=document.getElementById('side'), ov=document.getElementById('sideOv');
+  const toggle=()=>{ side.classList.toggle('-translate-x-full'); ov.classList.toggle('hidden'); };
+  document.getElementById('menuBtn').onclick=toggle; ov.onclick=toggle;
+  const av=document.getElementById('avatarBtn'); if(av) av.textContent=(u.name||'A')[0].toUpperCase();
+  document.getElementById('avatarBtn').onclick=e=>{e.stopPropagation();toggleAvatar();};
+  document.addEventListener('click',()=>{ const d=document.getElementById('avatarDrop'); if(d) d.classList.add('hidden'); });
+  const si=document.getElementById('stopImp');
+  if(si) si.onclick=async()=>{
+    try{ await API.call('stopImpersonation'); }catch(e){}
+    Session.user=Session.savedUser; Session.savedUser=null;
+    Session.bootstrap=await API.call('getBootstrap');
+    location.hash='#/tenants'; boot();
+  };
+  renderNav();
+}
+
+function toggleAvatar(){
+  const d=document.getElementById('avatarDrop'); if(!d) return;
+  const u=Session.user||{};
+  const item=(hash,label)=>`<a href="${hash}" class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm text-slate-600 hover:bg-slate-50 font-medium transition-colors">${label}</a>`;
+  d.innerHTML=`<div class="px-4 py-3.5 border-b border-slate-100 bg-slate-50/60">
+      <div class="font-semibold text-sm text-slate-800">${esc(u.name||u.username||'')}</div>
+      <div class="text-xs text-slate-400 capitalize mt-0.5">${esc(u.role||'')} · ${esc((Session.bootstrap||{}).company?.name||'')}</div></div>
+    <div class="p-2">
+      ${perm('settings')?item('#/settings',I18N.t('c4.layout.companySettings')):''}
+      <button id="avLogout" class="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm text-red-600 hover:bg-red-50 font-medium text-left transition-colors">${I18N.t('c4.layout.signOut')}</button>
+    </div>`;
+  d.classList.toggle('hidden');
+  const lo=d.querySelector('#avLogout');
+  if(lo) lo.onclick=()=>{ Session.clear(); location.hash='#/login'; boot(); };
+}
+
+function renderNav(){
+  const nav=document.getElementById('nav'); if(!nav) return;
+  nav.innerHTML=NAVGROUPS.map(g=>{
+    const items=App.nav.filter(n=>n.group===g.key&&perm(n.perm,'view')&&(!n.superadmin||Session.user.role==='superadmin'));
+    if(!items.length) return '';
+    return `<div><div class="px-3 mb-2 text-[10px] font-bold uppercase tracking-[.12em] text-slate-400">${I18N.t(g.labelKey)}</div>
+      <div class="space-y-1">${items.map(n=>{
+        const active=location.hash.startsWith(n.path);
+        return `<a href="${n.path}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all ${active?'bg-teal-50 text-teal-700 font-semibold shadow-[inset_0_0_0_1px_rgba(13,148,136,.12)]':'text-slate-500 hover:bg-slate-100 hover:text-slate-700 font-medium'}">
+          <span class="${active?'text-teal-600':'text-slate-400'}">${ICONS[n.icon]||''}</span><span class="truncate">${I18N.t(n.labelKey)}</span>
+          ${active?'<span class="ml-auto w-1.5 h-1.5 rounded-full bg-teal-500"></span>':''}</a>`;}).join('')}</div></div>`;
+  }).join('');
+}
+
+/* route() calls are serialized through a chain so a fast second navigation
+   (e.g. boot setting location.hash, which fires hashchange) can never
+   interleave with a render already in flight. */
+let routeChain=Promise.resolve();
+function route(){ routeChain=routeChain.then(_route,_route); return routeChain; }
+async function _route(){
+  const view=document.getElementById('view'); if(!view) return;
+  renderNav();
+  const hash=location.hash||'#/dashboard';
+  const qIdx=hash.indexOf('?');
+  const path=qIdx>0?hash.slice(0,qIdx):hash;
+  const params={}; if(qIdx>0) new URLSearchParams(hash.slice(qIdx+1)).forEach((v,k)=>params[k]=v);
+  const keys=Object.keys(App.routes).sort((a,b)=>b.length-a.length);
+  const key=keys.find(k=>path===k||path.startsWith(k+'/'));
+  const crumb=document.getElementById('crumb');
+  if(crumb){ const n=App.nav.find(n=>n.path===(key||path)); crumb.textContent=n?(n.labelKey?I18N.t(n.labelKey):n.label):''; }
+  view.innerHTML='<div class="space-y-4 anim-fadeIn"><div class="h-9 shimmer rounded-2xl w-1/3"></div><div class="h-72 shimmer rounded-2xl"></div></div>';
+  try{
+    if(key) await App.routes[key](view, params, path);
+    else { view.innerHTML=pageHead(I18N.t('c4.layout.notFound'),'')+'<p class="text-slate-500">'+I18N.t('c4.layout.notFoundMsg')+'</p>'; }
+  }catch(e){
+    console.error(e);
+    view.innerHTML=pageHead(I18N.t('c4.layout.error'),'')+`<div class="bg-red-50 border border-red-200 text-red-700 rounded-xl p-4 text-sm">${esc(e.message||I18N.t('c4.layout.somethingWrong'))}</div>`;
+  }
+  window.scrollTo(0,0);
+}
+
+async function boot(){
+  if(!await ensureBootstrap()){ if(location.hash!=='#/login') location.hash='#/login'; loginPage(); return; }
+  if(!document.getElementById('view')) shellHTML();
+  const hsh=location.hash;
+  const role=Session.user.role;
+  const landing=role==='superadmin'?'#/tenants':role==='employee'?'#/punch':'#/dashboard';
+  if(hsh==='#/login'||!hsh){ location.hash=landing; return; } /* hashchange drives route() */
+  route();
+}
+
+window.addEventListener('hashchange',()=>{ if(Session.user) route(); });
+if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot);
+else boot();
+App.ICONS=ICONS;
+App.boot=boot; App.route=route;
+})();
+
+
+/* ===== 120_reports.js ===== */
+/* 120_reports.js — attendance % summary table + Chart.js, export CSV buttons. */
+(function(){
+'use strict';
+
+App.nav.push({group:'MAIN', path:'#/reports', label:I18N.t('c4.nav.reports'), labelKey:'c4.nav.reports', icon:'reports', perm:'reports'});
+
+App.routes['#/reports'] = async (el)=>{
+  const cid=uid('rep');
+  el.innerHTML=pageHead(I18N.t('c4.nav.reports'),I18N.t('c4.rep.sub'),
+    `<button class="${btnS}" id="${cid}-csv-att">${I18N.t('c4.rep.csvAtt')}</button>
+     <button class="${btnS}" id="${cid}-csv-emp">${I18N.t('c4.rep.csvEmp')}</button>
+     <button class="${btnS}" id="${cid}-csv-pay">${I18N.t('c4.rep.csvPay')}</button>
+     <button class="${btnS}" id="${cid}-csv-leave">${I18N.t('c4.rep.csvLeave')}</button>`)+`
+  <div class="bg-white rounded-2xl border border-slate-200/70 p-4 mb-4 flex flex-wrap gap-3 items-end anim-fadeUp">
+    ${field(I18N.t('c4.common.from'),'from',{type:'date',value:addDays(todayISO(),-29)})}
+    ${field(I18N.t('c4.common.to'),'to',{type:'date',value:todayISO()})}
+    <button class="${btnP}" id="${cid}-go">${I18N.t('c4.common.generate')}</button>
+  </div>
+  <div id="${cid}-body"></div>`;
+  const body=document.getElementById(cid+'-body');
+
+  async function load(){
+    const from=formVal(body,'from')||addDays(todayISO(),-29);
+    const to=formVal(body,'to')||todayISO();
+    const rows=await API.call('attendanceSummary',from,to);
+    const avg=rows.length?Math.round(rows.reduce((a,r)=>a+r.pct,0)/rows.length):0;
+    const best=rows.slice().sort((a,b)=>b.pct-a.pct).slice(0,5);
+    const worst=rows.slice().sort((a,b)=>a.pct-b.pct).slice(0,5);
+    body.innerHTML=`
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
+        ${statCard(I18N.t('c4.rep.kpiAvg'),avg+'%',I18N.t('c4.rep.kpiAvgSub'),'teal',App.ICONS.reports,avg,'')}
+        ${statCard(I18N.t('c4.rep.kpiPresentDays'),fmtNum(rows.reduce((a,r)=>a+r.present,0)),I18N.t('c4.rep.kpiPeriod'),'emerald',App.ICONS.attendance,rows.reduce((a,r)=>a+r.present,0))}
+        ${statCard(I18N.t('c4.rep.kpiLate'),fmtNum(rows.reduce((a,r)=>a+r.late,0)),I18N.t('c4.rep.kpiPeriod'),'amber',App.ICONS.shifts,rows.reduce((a,r)=>a+r.late,0))}
+        ${statCard(I18N.t('c4.rep.kpiOoz'),fmtNum(rows.reduce((a,r)=>a+r.outOfZone,0)),I18N.t('c4.rep.kpiOozSub'),'red',App.ICONS.sites,rows.reduce((a,r)=>a+r.outOfZone,0))}
+      </div>
+      <div class="grid grid-cols-1 xl:grid-cols-3 gap-4 mb-5">
+        <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.05)] p-6 xl:col-span-2">
+          <h3 class="font-display font-bold text-slate-800 mb-5">${I18N.t('c4.rep.attPctByEmp')}</h3>
+          <div class="h-80"><canvas id="${cid}-chart"></canvas></div>
+        </div>
+        <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.05)] p-6">
+          <h3 class="font-display font-bold text-slate-800 mb-4">${I18N.t('c4.rep.topPerformers')}</h3>
+          ${best.map(r=>`<div class="flex items-center justify-between py-2 border-b border-slate-100 last:border-0 text-sm"><span class="font-medium text-slate-700">${esc(r.employeeName)}</span>${badge(r.pct+'%','emerald')}</div>`).join('')||'<p class="text-sm text-slate-400">—</p>'}
+          <h3 class="font-display font-bold text-slate-800 mt-6 mb-4">${I18N.t('c4.rep.needsAttention')}</h3>
+          ${worst.map(r=>`<div class="flex items-center justify-between py-2 border-b border-slate-100 last:border-0 text-sm"><span class="font-medium text-slate-700">${esc(r.employeeName)}</span>${badge(r.pct+'%',r.pct<70?'red':'amber')}</div>`).join('')||'<p class="text-sm text-slate-400">—</p>'}
+        </div>
+      </div>`+
+      tableHTML([
+        {label:I18N.t('c4.common.employee'), get:r=>`<div><div class="font-medium text-slate-700">${esc(r.employeeName)}</div><div class="text-xs text-slate-400">${esc(r.employeeCode)}</div></div>`},
+        {label:I18N.t('c4.rep.colPresent'), num:1, get:r=>`<span class="tabular-nums">${fmtNum(r.present)}</span>`},
+        {label:I18N.t('c4.rep.colAbsent'), num:1, get:r=>`<span class="tabular-nums ${r.absent?'text-red-500':''}">${fmtNum(r.absent)}</span>`},
+        {label:I18N.t('c4.rep.colLate'), num:1, get:r=>`<span class="tabular-nums ${r.late?'text-amber-600':''}">${fmtNum(r.late)}</span>`},
+        {label:I18N.t('c4.common.outOfZone'), num:1, get:r=>`<span class="tabular-nums">${fmtNum(r.outOfZone)}</span>`},
+        {label:I18N.t('c4.rep.colAttendance'), get:r=>`<div class="flex items-center gap-2"><div class="w-24 h-2 bg-slate-100 rounded-full overflow-hidden"><div class="h-full rounded-full ${r.pct>=90?'bg-emerald-500':r.pct>=75?'bg-teal-500':r.pct>=60?'bg-amber-500':'bg-red-500'}" style="width:${r.pct}%"></div></div><span class="text-sm font-semibold tabular-nums">${r.pct}%</span></div>`},
+      ], rows, {empty:I18N.t('c4.rep.emptyRep')});
+    const c=document.getElementById(cid+'-chart');
+    if(c&&typeof Chart!=='undefined'){
+      const top=rows.slice().sort((a,b)=>b.pct-a.pct).slice(0,15);
+      new Chart(c,{type:'bar',
+        data:{labels:top.map(r=>r.employeeName.split(' ')[0]),datasets:[{label:I18N.t('c4.rep.chartAttPct'),data:top.map(r=>r.pct),
+          backgroundColor:top.map(r=>r.pct>=90?'rgba(16,185,129,.8)':r.pct>=75?'rgba(13,148,136,.8)':r.pct>=60?'rgba(245,158,11,.8)':'rgba(239,68,68,.8)'),
+          borderRadius:6,maxBarThickness:30}]},
+        options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,
+          plugins:{legend:{display:false}},scales:{x:{beginAtZero:true,max:100,ticks:{callback:v=>v+'%'}}}}});
+    }
+    animateCounters(body);
+  }
+  document.getElementById(cid+'-go').onclick=load;
+  const dl=async(kind)=>{ const r=await API.call('exportCSV',kind,{}); downloadCSV(r.filename,r.csv); toast(I18N.t('c4.rep.csvDownloadedKind').replace('{kind}',kind),'success'); };
+  document.getElementById(cid+'-csv-att').onclick=()=>dl('attendance');
+  document.getElementById(cid+'-csv-emp').onclick=()=>dl('employees');
+  document.getElementById(cid+'-csv-pay').onclick=()=>dl('payroll');
+  document.getElementById(cid+'-csv-leave').onclick=()=>dl('leaves');
+  await load();
+};
+})();
+
+
+/* ===== 130_settings.js ===== */
+/* 130_settings.js — company profile, SMTP fields, Google-login note,
+   Backup Now, role permissions matrix. */
+(function(){
+'use strict';
+
+App.nav.push({group:'SYSTEM', path:'#/settings', label:'Settings', icon:'settings', perm:'settings'});
+
+const MODULES=[
+  ['dashboard','Dashboard'],['punch','My Punch'],['attendance','Attendance'],
+  ['employees','Employees'],['sites','Sites'],['shifts','Shifts & Roster'],
+  ['leave','Leave'],['overtime','Overtime'],['payroll','Payroll'],
+  ['documents','Documents'],['reports','Reports'],['settings','Settings'],
+];
+
+App.routes['#/settings'] = async (el)=>{
+  const cid=uid('set');
+  const canEdit=perm('settings','edit');
+  el.innerHTML=pageHead('Settings','Company profile, notifications and access control')+`
+  <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+    <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.05)] p-6">
+      <h3 class="font-display font-bold text-slate-800 mb-1">Company profile</h3>
+      <p class="text-sm text-slate-400 mb-5">Shown on logins, payslips and reports.</p>
+      <div id="${cid}-profile"></div>
+    </div>
+    <div class="space-y-4">
+      <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.05)] p-6">
+        <h3 class="font-display font-bold text-slate-800 mb-1">Email notifications (SMTP)</h3>
+        <p class="text-sm text-slate-400 mb-5">Used for leave decisions, expiring documents and payroll alerts.</p>
+        <div id="${cid}-smtp"></div>
+      </div>
+      <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.05)] p-6">
+        <h3 class="font-display font-bold text-slate-800 mb-1">Sign-in options</h3>
+        <div class="flex items-start gap-3 mt-4">
+          <div class="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold shrink-0">G</div>
+          <div class="text-sm"><div class="font-semibold text-slate-700">Sign in with Google</div>
+          <div class="text-slate-400 text-xs mt-1">In production, admins can link their Google Workspace account for one-click sign-in. Enable it from the Apps Script project settings, then toggle it here.</div></div>
+        </div>
+      </div>
+      <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.05)] p-6">
+        <h3 class="font-display font-bold text-slate-800 mb-1">Backup</h3>
+        <p class="text-sm text-slate-400 mb-4">Save a copy of the company spreadsheet to Google Drive.</p>
+        <button class="${btnS}" id="${cid}-backup">Backup Now</button>
+        <div id="${cid}-backupMsg" class="mt-3 text-sm"></div>
+      </div>
+      <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.05)] p-6">
+        <h3 class="font-display font-bold text-slate-800 mb-1">${I18N.t('t3.notifications')}</h3>
+        <p class="text-sm text-slate-400 mb-5">${I18N.t('t3.notifSub')}</p>
+        <div id="${cid}-notif"></div>
+      </div>
+    </div>
+  </div>
+  ${canEdit?`<div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.05)] p-6 mt-4">
+    <div class="flex items-center justify-between mb-1">
+      <h3 class="font-display font-bold text-slate-800">${I18N.t('t3.logTitle')}</h3>
+      <button class="${btnS} !py-1.5 !text-xs" id="${cid}-logRefresh">${I18N.t('t3.refresh')}</button>
+    </div>
+    <p class="text-sm text-slate-400 mb-5">${I18N.t('t3.logSub')}</p>
+    <div id="${cid}-msglog"></div>
+  </div>`:''}
+  ${canEdit?`<div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.05)] p-6 mt-4">
+    <h3 class="font-display font-bold text-slate-800 mb-1">Role permissions</h3>
+    <p class="text-sm text-slate-400 mb-5">Control which roles can view or edit each module.</p>
+    <div id="${cid}-perms"></div>
+    <button class="${btnP} mt-4" id="${cid}-savePerms">Save permissions</button>
+  </div>`:''}`;
+
+  const s=await API.call('getSettings');
+  const prof=document.getElementById(cid+'-profile');
+  prof.innerHTML=`
+    <div class="grid grid-cols-2 gap-4">
+      <div class="col-span-2">${field('Company name','companyName',{value:s.companyName,req:true})}</div>
+      <div class="col-span-2">${field('Address','address',{value:s.address||'',type:'textarea',rows:2})}</div>
+      ${field('Phone','phone',{value:s.phone||''})}
+      ${field('Email','email',{value:s.email||'',type:'email'})}
+    </div>
+    ${canEdit?`<button class="${btnP} mt-5" id="${cid}-saveProfile">Save profile</button>`:''}`;
+  const sp=document.getElementById(cid+'-saveProfile');
+  if(sp) sp.onclick=async()=>{
+    await API.call('saveSettings',collectForm(prof));
+    toast('Company profile saved','success');
+  };
+
+  const smtp=document.getElementById(cid+'-smtp');
+  smtp.innerHTML=`
+    <div class="grid grid-cols-2 gap-4">
+      ${field('SMTP host','smtpHost',{value:s.smtpHost||'',ph:'smtp.gmail.com'})}
+      ${field('SMTP port','smtpPort',{value:s.smtpPort||'587'})}
+      <div class="col-span-2">${field('SMTP username','smtpUser',{value:s.smtpUser||''})}</div>
+      <div class="col-span-2">${field('SMTP password','smtpPass',{type:'password',value:s.smtpPass||''})}</div>
+    </div>
+    ${canEdit?`<button class="${btnP} mt-5" id="${cid}-saveSmtp">Save SMTP settings</button>`:''}`;
+  const ss=document.getElementById(cid+'-saveSmtp');
+  if(ss) ss.onclick=async()=>{ await API.call('saveSettings',collectForm(smtp)); toast('SMTP settings saved','success'); };
+
+  const bb=document.getElementById(cid+'-backup');
+  if(bb) bb.onclick=async()=>{
+    bb.disabled=true; bb.innerHTML='<span class="spinner" style="border-color:rgba(13,148,136,.3);border-top-color:#0d9488"></span>';
+    try{
+      const r=await API.call('backupNow');
+      document.getElementById(cid+'-backupMsg').innerHTML=`<span class="text-emerald-600 font-medium">✓ Backup created:</span> <span class="text-slate-600">${esc(r.name)}</span>`;
+      toast('Backup created','success');
+    }catch(e){ toast(e.message,'error'); }
+    bb.disabled=false; bb.textContent='Backup Now';
+  };
+
+  /* TRACK 3: notifications card + message log */
+  const nt=document.getElementById(cid+'-notif');
+  if(nt&&window.Alerts){ nt.innerHTML=Alerts.notifHTML(s,canEdit); Alerts.initNotif(cid+'-notif',canEdit); }
+  const ml=document.getElementById(cid+'-msglog');
+  if(ml&&window.Alerts){
+    Alerts.renderLog(ml);
+    const rf=document.getElementById(cid+'-logRefresh');
+    if(rf) rf.onclick=()=>Alerts.renderLog(ml);
+  }
+
+  if(canEdit){
+    const perms=await API.call('listRolePermissions');
+    const roles=Object.keys(perms);
+    const pe=document.getElementById(cid+'-perms');
+    pe.innerHTML=`<div class="overflow-x-auto"><table class="w-full text-sm">
+      <thead><tr class="border-b border-slate-100">
+        <th class="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400">Module</th>
+        ${roles.map(r=>`<th class="px-3 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wider text-slate-400 capitalize">${esc(r)}</th>`).join('')}
+      </tr></thead><tbody class="divide-y divide-slate-50">
+      ${MODULES.map(([mk,ml])=>`<tr class="hover:bg-teal-50/40">
+        <td class="px-3 py-2.5 font-medium text-slate-700">${ml}</td>
+        ${roles.map(r=>{ const p=(perms[r]||{})[mk]||{};
+          return `<td class="px-3 py-2.5 text-center">
+            <label class="inline-flex items-center gap-1 text-[11px] text-slate-500 mr-2"><input type="checkbox" data-r="${r}" data-m="${mk}" data-a="view" ${p.view?'checked':''} class="w-3.5 h-3.5 rounded accent-teal-600"> view</label>
+            <label class="inline-flex items-center gap-1 text-[11px] text-slate-500"><input type="checkbox" data-r="${r}" data-m="${mk}" data-a="edit" ${p.edit?'checked':''} class="w-3.5 h-3.5 rounded accent-teal-600"> edit</label>
+          </td>`;}).join('')}
+      </tr>`).join('')}
+      </tbody></table></div>`;
+    document.getElementById(cid+'-savePerms').onclick=async()=>{
+      const matrix={};
+      pe.querySelectorAll('input[type="checkbox"]').forEach(x=>{
+        matrix[x.dataset.r]=matrix[x.dataset.r]||{};
+        matrix[x.dataset.r][x.dataset.m]=matrix[x.dataset.r][x.dataset.m]||{};
+        matrix[x.dataset.r][x.dataset.m][x.dataset.a]=x.checked?1:0;
+      });
+      await API.call('saveRolePermissions',matrix);
+      toast('Permissions saved — they apply on next sign-in','success');
+    };
+  }
+};
+})();
+
+
+/* ===== 140_tenants.js ===== */
+/* 140_tenants.js — superadmin: tenant table, create-tenant modal, stats, impersonation. */
+(function(){
+'use strict';
+
+App.nav.push({group:'SYSTEM', path:'#/tenants', label:I18N.t('c4.nav.tenants'), labelKey:'c4.nav.tenants', icon:'tenants', perm:'tenants', superadmin:true});
+
+App.routes['#/tenants'] = async (el)=>{
+  if(Session.user.role!=='superadmin'){
+    el.innerHTML=pageHead(I18N.t('c4.nav.tenants'),'')+'<div class="bg-white rounded-2xl border border-slate-200/70 p-12 text-center text-slate-500">'+I18N.t('c4.ten.superadminOnly')+'</div>';
+    return;
+  }
+  const cid=uid('ten');
+  el.innerHTML=pageHead(I18N.t('c4.nav.tenants'),I18N.t('c4.ten.sub'),
+    `<button class="${btnP}" id="${cid}-add">${I18N.t('c4.ten.createTenant')}</button>`)+
+  `<div id="${cid}-stats" class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-5"></div>
+   <div id="${cid}-body"></div>`;
+  const statsEl=document.getElementById(cid+'-stats');
+  const body=document.getElementById(cid+'-body');
+
+  async function load(){
+    const stats=await API.call('getPlatformStats');
+    const rows=await API.call('listTenants');
+    statsEl.innerHTML=
+      statCard(I18N.t('c4.ten.kpiTenants'),fmtNum(stats.tenants),I18N.t('c4.ten.kpiTenantsSub'),'teal',App.ICONS.tenants,stats.tenants)+
+      statCard(I18N.t('c4.common.active'),fmtNum(stats.active),I18N.t('c4.ten.kpiActiveSub'),'emerald',App.ICONS.tenants,stats.active)+
+      statCard(I18N.t('c4.ten.trial'),fmtNum(stats.trial),I18N.t('c4.ten.kpiTrialSub'),'amber',App.ICONS.tenants,stats.trial)+
+      statCard(I18N.t('c4.nav.employees'),fmtNum(stats.totalEmployees),I18N.t('c4.ten.kpiEmpsSub'),'blue',App.ICONS.employees,stats.totalEmployees)+
+      statCard(I18N.t('c4.ten.kpiPunches'),fmtNum(stats.totalPunches),I18N.t('c4.ten.kpiPunchesSub'),'violet',App.ICONS.punch,stats.totalPunches);
+    animateCounters(statsEl);
+    body.innerHTML=tableHTML([
+      {label:I18N.t('c4.ten.colCompany'), get:t=>`<div><div class="font-semibold text-slate-700">${esc(t.companyName)}</div><div class="text-xs text-slate-400 font-mono">${I18N.t('c4.ten.codeLabel')} ${esc(t.loginCode)}</div></div>`},
+      {label:I18N.t('c4.ten.colPlan'), get:t=>badge(t.plan||'Starter', t.plan==='Growth'?'teal':'slate')},
+      {label:I18N.t('c4.common.status'), get:t=>t.status==='active'?badge(I18N.t('c4.common.active'),'emerald'):t.status==='trial'?badge(I18N.t('c4.ten.trial'),'amber'):badge(t.status,'slate')},
+      {label:I18N.t('c4.ten.colUsers'), num:1, get:t=>fmtNum(t.users||0)},
+      {label:I18N.t('c4.nav.employees'), num:1, get:t=>fmtNum(t.employees||0)},
+      {label:I18N.t('c4.ten.colCreated'), get:t=>fmtDate(t.createdAt)},
+      {label:'', get:t=>`<div class="flex gap-1 justify-end">
+        <button class="${btnS} !px-3 !py-1.5 !text-xs" data-imp="${t.tenantId}">${I18N.t('c4.ten.loginAs')}</button>
+        <button class="${btnS} !px-3 !py-1.5 !text-xs" data-edit="${t.tenantId}">${I18N.t('c4.common.edit')}</button>
+        <button class="${btnS} !px-3 !py-1.5 !text-xs !text-red-600" data-del="${t.tenantId}">${I18N.t('c4.common.delete')}</button></div>`},
+    ], rows, {empty:I18N.t('c4.ten.emptyTenants')});
+    body.querySelectorAll('[data-imp]').forEach(b=>b.onclick=async()=>{
+      const r=await API.call('impersonate',b.dataset.imp);
+      Session.savedUser=Session.user;
+      Session.user={...r.user, token:r.token};
+      Session.bootstrap=await API.call('getBootstrap');
+      toast(I18N.t('c4.ten.impersonatingN').replace('{name}',r.user.name),'info');
+      location.hash='#/dashboard'; App.boot();
+    });
+    body.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{
+      const t=rows.find(x=>x.tenantId===b.dataset.edit);
+      const m=modal(I18N.t('c4.ten.editTenantTitle'),`
+        ${field(I18N.t('c4.ten.fCompanyName'),'companyName',{value:t.companyName,req:true})}
+        <div class="grid grid-cols-2 gap-4 mt-4">
+          ${field(I18N.t('c4.ten.fPlan'),'plan',{type:'select',value:t.plan,options:[{value:'Starter',label:'Starter'},{value:'Growth',label:'Growth'},{value:'Enterprise',label:'Enterprise'}]})}
+          ${field(I18N.t('c4.ten.fStatus'),'status',{type:'select',value:t.status,options:[{value:'trial',label:'Trial'},{value:'active',label:'Active'},{value:'suspended',label:'Suspended'}]})}
+        </div>
+        <div class="flex justify-end gap-2 mt-6"><button class="${btnS}" id="tCancel">${I18N.t('c4.common.cancel')}</button><button class="${btnP}" id="tSave">${I18N.t('c4.common.save')}</button></div>`);
+      m.el.querySelector('#tCancel').onclick=()=>m.close();
+      m.el.querySelector('#tSave').onclick=async()=>{
+        await API.call('updateTenant',t.tenantId,collectForm(m.el)); m.close(); toast(I18N.t('c4.ten.tenantUpdated'),'success'); load();
+      };
+    });
+    body.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{
+      if(!await confirmDlg(I18N.t('c4.ten.delTenantTitle'),I18N.t('c4.ten.delTenantMsg'),I18N.t('c4.common.delete'))) return;
+      await API.call('deleteTenant',b.dataset.del); toast(I18N.t('c4.ten.tenantDeleted'),'success'); load();
+    });
+  }
+  document.getElementById(cid+'-add').onclick=()=>{
+    const m=modal(I18N.t('c4.ten.createTenantTitle'),`
+      <p class="text-sm text-slate-500 mb-4">${I18N.t('c4.ten.createTenantHelp')}</p>
+      <div class="grid grid-cols-2 gap-4">
+        <div class="col-span-2">${field(I18N.t('c4.ten.fCompanyName'),'companyName',{req:true,ph:'e.g. Sunrise Builders'})}</div>
+        ${field(I18N.t('c4.ten.fPlan'),'plan',{type:'select',options:[{value:'Starter',label:'Starter'},{value:'Growth',label:'Growth'},{value:'Enterprise',label:'Enterprise'}]})}
+        ${field(I18N.t('c4.ten.fAdminName'),'adminName',{req:true})}
+        ${field(I18N.t('c4.ten.fAdminUser'),'adminUser',{req:true,ph:'admin'})}
+        ${field(I18N.t('c4.ten.fAdminPass'),'adminPass',{type:'password',req:true})}
+      </div>
+      <div class="flex justify-end gap-2 mt-6"><button class="${btnS}" id="tCancel">${I18N.t('c4.common.cancel')}</button><button class="${btnP}" id="tGo">${I18N.t('c4.ten.createTenantBtn')}</button></div>`);
+    m.el.querySelector('#tCancel').onclick=()=>m.close();
+    m.el.querySelector('#tGo').onclick=async()=>{
+      const d=collectForm(m.el);
+      if(!d.companyName||!d.adminName||!d.adminUser||!d.adminPass){ toast(I18N.t('c4.ten.fillAll'),'warn'); return; }
+      const t=await API.call('createTenant',d.companyName,d.plan,d.adminName,d.adminUser,d.adminPass);
+      m.close(); toast(I18N.t('c4.ten.tenantCreated').replace('{company}',d.companyName).replace('{code}',t.loginCode),'success'); load();
+    };
+  };
+  await load();
+};
+})();
+
+
+/* ===== 150_face.js ===== */
+/* 150_face.js — TRACK 1: on-device face check-in (Phase 2).
+   Enrollment UI on #/face (camera, 1-3 samples, averaged 128-d descriptor saved
+   via enrollFace). At punch time an API.call wrapper captures a live frame from
+   the punch page camera, compares the descriptor on-device (Euclidean distance,
+   threshold 0.6) and routes through punchWithFace so the punch record carries
+   faceVerified + matchScore. If face-api.js fails to load, no enrollment exists,
+   or anything else goes wrong, the plain punch flow continues untouched
+   (faceVerified=null). Raw face images never leave the device.
+   Hard rule: no literal colon-slash-slash sequence anywhere in this file (GAS sanitizer); CDN URLs
+   are built with the 'https:' + '//...' concat pattern. Block comments only. */
+(function(){
+'use strict';
+
+/* ---------------- i18n (track framework hook) ---------------- */
+if (typeof I18N === 'undefined') {
+  window.I18N = { dict: { en: {}, ur: {} }, lang: 'en',
+    t: function(k){ var d = this.dict[this.lang] || {}; return d[k] !== undefined ? d[k] : k; } };
+}
+Object.assign(I18N.dict.en, {
+  't1.nav': 'Face Check-in',
+  't1.title': 'Face Check-in',
+  't1.subtitle': 'On-device face enrollment and verification',
+  't1.selectEmployee': 'Employee',
+  't1.chooseEmployee': 'Select an employee to begin enrollment.',
+  't1.enableCamera': 'Enable camera',
+  't1.cameraOn': 'Camera on',
+  't1.captureSample': 'Capture sample',
+  't1.samples': 'Samples',
+  't1.sampleN': 'Sample',
+  't1.maxSamples': 'Maximum 3 samples reached.',
+  't1.minSamples': 'Capture at least 1 sample (up to 3) before saving.',
+  't1.saveEnrollment': 'Save enrollment',
+  't1.saving': 'Saving…',
+  't1.saved': 'Face enrollment saved.',
+  't1.enrolled': 'Enrolled',
+  't1.notEnrolled': 'Not enrolled',
+  't1.enrolledAt': 'Enrolled at',
+  't1.reenrollHint': 'Capturing new samples overwrites the existing enrollment.',
+  't1.reset': 'Reset enrollment',
+  't1.resetDone': 'Face enrollment removed.',
+  't1.confirmReset': 'Remove the face enrollment for this employee?',
+  't1.needFace': 'No face detected — please face the camera and try again.',
+  't1.libLoading': 'Loading face-recognition library…',
+  't1.libFailed': 'Face library could not load — punching still works without face verification.',
+  't1.verified': 'Face verified',
+  't1.notVerified': 'Face not verified',
+  't1.noEnroll': 'No face enrollment — face check skipped.',
+  't1.step1': '1 · Employee',
+  't1.step2': '2 · Capture samples',
+  't1.status': 'Enrollment status'
+});
+Object.assign(I18N.dict.ur, {
+  't1.nav': 'چہرے سے حاضری',
+  't1.title': 'چہرے سے حاضری',
+  't1.subtitle': 'ڈیوائس پر چہرے کا اندراج اور تصدیق',
+  't1.selectEmployee': 'ملازم',
+  't1.chooseEmployee': 'اندراج شروع کرنے کے لیے ملازم منتخب کریں۔',
+  't1.enableCamera': 'کیمرہ آن کریں',
+  't1.cameraOn': 'کیمرہ آن ہے',
+  't1.captureSample': 'نمونہ لیں',
+  't1.samples': 'نمونے',
+  't1.sampleN': 'نمونہ',
+  't1.maxSamples': 'زیادہ سے زیادہ 3 نمونے ہو گئے۔',
+  't1.minSamples': 'محفوظ کرنے سے پہلے کم از کم 1 نمونہ (زیادہ سے زیادہ 3) لیں۔',
+  't1.saveEnrollment': 'اندراج محفوظ کریں',
+  't1.saving': 'محفوظ ہو رہا ہے…',
+  't1.saved': 'چہرے کا اندراج محفوظ ہو گیا۔',
+  't1.enrolled': 'اندراج شدہ',
+  't1.notEnrolled': 'اندراج نہیں',
+  't1.enrolledAt': 'اندراج کی تاریخ',
+  't1.reenrollHint': 'نئے نمونے لینے سے پرانا اندراج بدل جائے گا۔',
+  't1.reset': 'اندراج حذف کریں',
+  't1.resetDone': 'چہرے کا اندراج حذف کر دیا گیا۔',
+  't1.confirmReset': 'اس ملازم کا چہرے کا اندراج حذف کر دیں؟',
+  't1.needFace': 'چہرہ نظر نہیں آیا — کیمرے کی طرف دیکھیں اور دوبارہ کوشش کریں۔',
+  't1.libLoading': 'چہرہ شناخت لائبریری لوڈ ہو رہی ہے…',
+  't1.libFailed': 'لائبریری لوڈ نہ ہو سکی — چہرے کی تصدیق کے بغیر حاضری درج ہو گی۔',
+  't1.verified': 'چہرہ تصدیق شدہ',
+  't1.notVerified': 'چہرہ تصدیق نہیں ہوا',
+  't1.noEnroll': 'چہرے کا اندراج نہیں — جانچ چھوڑ دی گئی۔',
+  't1.step1': '1 · ملازم',
+  't1.step2': '2 · نمونے لیں',
+  't1.status': 'اندراج کی صورتحال'
+});
+
+/* ---------------- pure matching math (exposed for QA) ---------------- */
+var FACE_THRESHOLD = 0.6;
+var MAX_SAMPLES = 3;
+
+function euclid(a, b){
+  if (!Array.isArray(a) || !Array.isArray(b) || !a.length || a.length !== b.length) return null;
+  var s = 0;
+  for (var i = 0; i < a.length; i++){
+    var x = a[i], y = b[i];
+    if (typeof x !== 'number' || typeof y !== 'number' || !isFinite(x) || !isFinite(y)) return null;
+    var d = x - y; s += d * d;
+  }
+  return Math.sqrt(s);
+}
+function averageDescriptors(samples){
+  if (!Array.isArray(samples) || !samples.length) return null;
+  var n = -1, acc = null, count = 0;
+  for (var k = 0; k < samples.length; k++){
+    var s = samples[k];
+    if (!Array.isArray(s) || !s.length) continue;
+    if (n < 0){ n = s.length; acc = new Array(n).fill(0); }
+    if (s.length !== n) continue;
+    var ok = true;
+    for (var i = 0; i < n; i++){
+      var v = s[i];
+      if (typeof v !== 'number' || !isFinite(v)){ ok = false; break; }
+      acc[i] += v;
+    }
+    if (ok) count++;
+  }
+  if (!count) return null;
+  return acc.map(function(v){ return v / count; });
+}
+function matchScore(dist){
+  if (dist === null || dist === undefined || !isFinite(dist)) return null;
+  return Math.max(0, Math.min(1, 1 - dist));
+}
+function verifyFace(live, enrolled, threshold){
+  threshold = (threshold === undefined) ? FACE_THRESHOLD : threshold;
+  var dist = euclid(live, enrolled);
+  if (dist === null) return { faceVerified: null, matchScore: null, distance: null };
+  return { faceVerified: dist <= threshold, matchScore: matchScore(dist), distance: dist };
+}
+function validDescriptor(d){
+  return Array.isArray(d) && d.length === 128 &&
+    d.every(function(v){ return typeof v === 'number' && isFinite(v); });
+}
+/* Backward-compatible punch payload extension: empty object when no check ran */
+function buildFacePunchFields(v){
+  if (!v || v.faceVerified === null || v.faceVerified === undefined) return {};
+  return { faceVerified: !!v.faceVerified, matchScore: v.matchScore };
+}
+
+window.T1Face = { FACE_THRESHOLD: FACE_THRESHOLD, MAX_SAMPLES: MAX_SAMPLES,
+  euclid: euclid, averageDescriptors: averageDescriptors, matchScore: matchScore,
+  verifyFace: verifyFace, validDescriptor: validDescriptor,
+  buildFacePunchFields: buildFacePunchFields };
+
+/* ---------------- face-api.js lazy loader ---------------- */
+var FACE_LIB_URL = 'https:' + '//cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js';
+var FACE_MODEL_URL = 'https:' + '//cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights';
+var _libPromise = null;
+
+function loadScriptOnce(src){
+  return new Promise(function(resolve, reject){
+    var s = document.createElement('script');
+    s.src = src; s.async = true;
+    s.onload = function(){ resolve(); };
+    s.onerror = function(){ reject(new Error('Face library failed to load')); };
+    document.head.appendChild(s);
+  });
+}
+function ensureFaceLib(){
+  if (window.faceapi && window.faceapi.nets && window.faceapi.nets.tinyFaceDetector &&
+      window.faceapi.nets.tinyFaceDetector.isLoaded) return Promise.resolve(window.faceapi);
+  if (_libPromise) return _libPromise;
+  _libPromise = loadScriptOnce(FACE_LIB_URL).then(function(){
+    var fa = window.faceapi;
+    if (!fa) throw new Error('Face library failed to load');
+    return Promise.all([
+      fa.nets.tinyFaceDetector.loadFromUri(FACE_MODEL_URL),
+      fa.nets.faceLandmark68Net.loadFromUri(FACE_MODEL_URL),
+      fa.nets.faceRecognitionNet.loadFromUri(FACE_MODEL_URL)
+    ]).then(function(){ return fa; });
+  });
+  return _libPromise;
+}
+function descriptorFromVideo(video){
+  return ensureFaceLib().then(function(fa){
+    return fa.detectSingleFace(video, new fa.TinyFaceDetectorOptions())
+      .withFaceLandmarks().withFaceDescriptor();
+  }).then(function(det){
+    return det ? Array.from(det.descriptor) : null;
+  });
+}
+
+/* ---------------- punch-time hook (DOM/API interception, no edits to 30_punch.js) ---------------- */
+function liveVideoEl(){
+  var vids = document.querySelectorAll('video');
+  for (var i = 0; i < vids.length; i++){
+    var v = vids[i];
+    /* Only a genuinely live camera feed counts: this also keeps offline queue
+       syncs (no live video at sync time) on the plain punch path. */
+    if (v.srcObject && v.videoWidth > 0 && !v.paused) return v;
+  }
+  return null;
+}
+function announceFaceResult(v){
+  var label = v.faceVerified ? I18N.t('t1.verified') : I18N.t('t1.notVerified');
+  var pct = (v.matchScore === null) ? '' : ' · ' + Math.round(v.matchScore * 100) + '%';
+  toast(esc(label) + pct, v.faceVerified ? 'success' : 'warn');
+  try {
+    var hosts = document.querySelectorAll('[id$="-msg"]');
+    for (var i = 0; i < hosts.length; i++){
+      var d = document.createElement('div');
+      d.className = 'mt-2 text-sm rounded-xl px-4 py-2.5 border ' +
+        (v.faceVerified ? 'text-emerald-700 bg-emerald-50 border-emerald-200/70'
+                        : 'text-red-700 bg-red-50 border-red-200/70');
+      d.textContent = label + pct;
+      hosts[i].insertBefore(d, hosts[i].firstChild);
+    }
+  } catch (e) { /* never break the punch page */ }
+}
+async function punchWithFaceCheck(origCall, args){
+  var employeeId = args[0];
+  try {
+    var video = liveVideoEl();
+    if (!video) return origCall.apply(window.API, ['punch'].concat(args));
+    var enr = null;
+    try { enr = await window.API.call('getFaceEnrollment', employeeId); }
+    catch (e) { enr = null; }
+    if (!enr || !enr.enrolled || !validDescriptor(enr.descriptor)){
+      toast(I18N.t('t1.noEnroll'), 'info');
+      return origCall.apply(window.API, ['punch'].concat(args));
+    }
+    var live = await descriptorFromVideo(video);
+    var v = verifyFace(live, enr.descriptor, FACE_THRESHOLD);
+    if (v.faceVerified === null){
+      toast(I18N.t('t1.needFace'), 'warn');
+      return origCall.apply(window.API, ['punch'].concat(args));
+    }
+    var r = await origCall('punchWithFace', args[0], args[1], args[2], args[3],
+                           args[4], args[5], args[6], v.faceVerified, v.matchScore);
+    announceFaceResult(v);
+    return r;
+  } catch (e) {
+    /* Any face failure must never block attendance */
+    return origCall.apply(window.API, ['punch'].concat(args));
+  }
+}
+(function installPunchHook(){
+  if (typeof API === 'undefined' || !API || API.__t1wrapped) return;
+  API.__t1wrapped = true;
+  var origCall = API.call.bind(API);
+  API.call = function(fn){
+    var args = Array.prototype.slice.call(arguments, 1);
+    if (fn !== 'punch') return origCall.apply(API, [fn].concat(args));
+    return punchWithFaceCheck(origCall, args);
+  };
+})();
+
+/* ---------------- #/face enrollment page ---------------- */
+if (typeof App !== 'undefined' && App.nav){
+  App.ICONS.face = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5 shrink-0"><circle cx="12" cy="12" r="8.5"/><circle cx="9.2" cy="10" r="0.9" fill="currentColor" stroke="none"/><circle cx="14.8" cy="10" r="0.9" fill="currentColor" stroke="none"/><path d="M8.5 14.5c1 1.2 2.2 1.8 3.5 1.8s2.5-0.6 3.5-1.8"/></svg>';
+  App.nav.push({ group: 'WORKFORCE', path: '#/face', label: I18N.t('t1.nav'), icon: 'face', perm: 'employees' });
+
+  App.routes['#/face'] = async function(el){
+    if (!perm('employees', 'view')){
+      el.innerHTML = pageHead(I18N.t('t1.title'), I18N.t('t1.subtitle')) +
+        '<div class="text-sm text-red-600">Permission denied.</div>';
+      return;
+    }
+    var cid = uid('face');
+    var employees = await API.call('listEmployees').catch(function(){ return []; });
+    var active = (employees || []).filter(function(e){ return e.active; });
+    var opts = active.map(function(e){ return { value: e.id, label: e.name + ' (' + e.code + ')' }; });
+    el.innerHTML = pageHead(I18N.t('t1.title'), I18N.t('t1.subtitle')) + '\n' +
+    '<div class="grid grid-cols-1 lg:grid-cols-2 gap-4 max-w-5xl">' +
+      '<div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.05)] p-6 anim-fadeUp">' +
+        '<h3 class="font-display font-bold text-slate-800 mb-4">' + esc(I18N.t('t1.step1')) + '</h3>' +
+        field(I18N.t('t1.selectEmployee'), 'faceEmp', { type: 'select',
+          options: [{ value: '', label: I18N.t('t1.chooseEmployee') }].concat(opts), cls: 'mb-4' }) +
+        '<div id="' + cid + '-status"></div>' +
+        '<div class="text-xs text-slate-400 mt-2">' + esc(I18N.t('t1.reenrollHint')) + '</div>' +
+      '</div>' +
+      '<div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.05)] p-6 anim-fadeUp">' +
+        '<h3 class="font-display font-bold text-slate-800 mb-4">' + esc(I18N.t('t1.step2')) + '</h3>' +
+        '<div class="rounded-2xl overflow-hidden bg-slate-900 aspect-[4/3] relative mb-4">' +
+          '<video id="' + cid + '-vid" class="w-full h-full object-cover" autoplay playsinline muted></video>' +
+          '<canvas id="' + cid + '-cap" class="hidden"></canvas>' +
+          '<div id="' + cid + '-novideo" class="absolute inset-0 hidden items-center justify-center text-slate-400 text-sm text-center p-6"></div>' +
+        '</div>' +
+        '<div id="' + cid + '-libmsg" class="text-xs text-slate-400 mb-3">' + esc(I18N.t('t1.libLoading')) + '</div>' +
+        '<div class="flex gap-2 mb-4">' +
+          '<button id="' + cid + '-camon" class="' + btnS + ' flex-1">' + esc(I18N.t('t1.enableCamera')) + '</button>' +
+          '<button id="' + cid + '-snap" class="' + btnS + ' flex-1" disabled>' + esc(I18N.t('t1.captureSample')) + '</button>' +
+        '</div>' +
+        '<div id="' + cid + '-samples" class="text-sm text-slate-600 mb-4"></div>' +
+        '<div class="flex gap-2">' +
+          '<button id="' + cid + '-save" class="' + btnP + ' flex-1" disabled>' + esc(I18N.t('t1.saveEnrollment')) + '</button>' +
+          '<button id="' + cid + '-reset" class="' + btnD + '">' + esc(I18N.t('t1.reset')) + '</button>' +
+        '</div>' +
+        '<div id="' + cid + '-msg" class="mt-4"></div>' +
+      '</div>' +
+    '</div>';
+
+    var $ = function(id){ return document.getElementById(cid + '-' + id); };
+    var state = { empId: '', stream: null, samples: [], libReady: false };
+    var vid = $('vid'), cap = $('cap');
+
+    /* face-api loads in the background; enrollment needs it, punch works without */
+    ensureFaceLib().then(function(){
+      state.libReady = true;
+      $('libmsg').textContent = '';
+    }).catch(function(){
+      $('libmsg').textContent = I18N.t('t1.libFailed');
+    });
+
+    function refreshStatus(){
+      var box = $('status');
+      if (!state.empId){ box.innerHTML = ''; return; }
+      box.innerHTML = '<div class="text-sm text-slate-400">…</div>';
+      API.call('getFaceEnrollment', state.empId).then(function(enr){
+        if (enr && enr.enrolled){
+          box.innerHTML =
+            '<div class="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3.5 flex items-center gap-3">' +
+              '<div class="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center font-bold">✓</div>' +
+              '<div><div class="text-sm font-semibold text-emerald-800">' + esc(I18N.t('t1.enrolled')) + '</div>' +
+              '<div class="text-xs text-emerald-600">' + esc(I18N.t('t1.enrolledAt')) + ': ' + esc(enr.enrolledAt || '—') + '</div></div>' +
+            '</div>';
+        } else {
+          box.innerHTML =
+            '<div class="rounded-xl border border-slate-200 bg-slate-50 p-3.5 text-sm text-slate-500">' +
+              esc(I18N.t('t1.notEnrolled')) + '</div>';
+        }
+      }).catch(function(){ box.innerHTML = ''; });
+    }
+    function refreshSamples(){
+      var box = $('samples');
+      box.innerHTML = esc(I18N.t('t1.samples')) + ': ' + state.samples.length + ' / ' + MAX_SAMPLES +
+        (state.samples.length ? ' (' + state.samples.map(function(_, i){
+            return esc(I18N.t('t1.sampleN')) + ' ' + (i + 1);
+          }).join(', ') + ')' : '');
+      $('save').disabled = !(state.empId && state.samples.length);
+    }
+
+    var empSel = document.querySelector('[name="faceEmp"]');
+    if (empSel) empSel.addEventListener('change', function(){
+      state.empId = empSel.value; state.samples = [];
+      refreshStatus(); refreshSamples();
+    });
+
+    $('camon').onclick = async function(){
+      try {
+        var stream = await navigator.mediaDevices.getUserMedia(
+          { video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }, audio: false });
+        state.stream = stream; vid.srcObject = stream;
+        $('snap').disabled = false; $('camon').disabled = true;
+        $('camon').textContent = I18N.t('t1.cameraOn');
+      } catch (e){
+        var nv = $('novideo'); nv.textContent = String(e.message || e); nv.style.display = 'flex';
+      }
+    };
+    $('snap').onclick = async function(){
+      if (!state.stream) return;
+      if (state.samples.length >= MAX_SAMPLES){ toast(I18N.t('t1.maxSamples'), 'warn'); return; }
+      $('snap').disabled = true;
+      try {
+        if (!state.libReady) await ensureFaceLib();
+        var vw = vid.videoWidth || 640, vh = vid.videoHeight || 480;
+        var scale = Math.min(1, 320 / Math.max(vw, vh));
+        cap.width = Math.round(vw * scale); cap.height = Math.round(vh * scale);
+        cap.getContext('2d').drawImage(vid, 0, 0, cap.width, cap.height);
+        var d = await descriptorFromVideo(cap);
+        if (!d || !validDescriptor(d)){ toast(I18N.t('t1.needFace'), 'warn'); return; }
+        state.samples.push(d);
+        toast(I18N.t('t1.sampleN') + ' ' + state.samples.length + ' / ' + MAX_SAMPLES, 'success');
+      } catch (e){
+        toast(I18N.t('t1.libFailed'), 'warn');
+      } finally {
+        refreshSamples();
+        $('snap').disabled = false;
+      }
+    };
+    $('save').onclick = async function(){
+      var msg = $('msg');
+      if (!state.empId || !state.samples.length){ msg.innerHTML = ''; return; }
+      var avg = T1Face.averageDescriptors(state.samples);
+      if (!validDescriptor(avg)){
+        msg.innerHTML = '<div class="text-sm text-red-600">' + esc(I18N.t('t1.minSamples')) + '</div>';
+        return;
+      }
+      $('save').disabled = true; $('save').textContent = I18N.t('t1.saving');
+      try {
+        await API.call('enrollFace', state.empId, avg);
+        state.samples = [];
+        msg.innerHTML = '<div class="text-sm text-emerald-700 bg-emerald-50 border border-emerald-200/70 rounded-xl px-4 py-3">' +
+          esc(I18N.t('t1.saved')) + '</div>';
+        toast(I18N.t('t1.saved'), 'success');
+        refreshStatus();
+      } catch (e){
+        msg.innerHTML = '<div class="text-sm text-red-600 bg-red-50 border border-red-200/70 rounded-xl px-4 py-3">' +
+          esc(e.message || e) + '</div>';
+      } finally {
+        refreshSamples();
+        $('save').textContent = I18N.t('t1.saveEnrollment');
+      }
+    };
+    $('reset').onclick = async function(){
+      if (!state.empId) return;
+      if (!(await confirmDlg(I18N.t('t1.reset'), I18N.t('t1.confirmReset'), I18N.t('t1.reset')))) return;
+      try {
+        await API.call('resetFaceEnrollment', state.empId);
+        toast(I18N.t('t1.resetDone'), 'success');
+        refreshStatus();
+      } catch (e){ toast(esc(e.message || e), 'error'); }
+    };
+    refreshSamples();
+  };
+}
+
+})();
+
+
+/* ===== 155_salary.js ===== */
+/* 155_salary.js — Track 2: auto salary from attendance.
+   Salaries tab on the Payroll page: salary structures manager, salary rules
+   (settings), monthly generation from attendance, salary runs with per-row
+   printable payslips (print CSS, browser print-to-PDF). */
+(function(){
+'use strict';
+
+/* I18N bootstrap (pattern: Object.assign(I18N.dict.en/ur, {...})); safe if the
+   framework file from the other track loads before or after this one. */
+window.I18N = window.I18N || { dict: { en: {}, ur: {} }, lang: 'en' };
+if(!I18N.t) I18N.t = function(k){
+  var d = I18N.dict || {};
+  return (d[I18N.lang] && d[I18N.lang][k]) || (d.en && d.en[k]) || k;
+};
+Object.assign(I18N.dict.en, {
+  't2.salaries': 'Salaries',
+  't2.salaryStructures': 'Salary structures',
+  't2.structuresSub': 'Per-employee basic pay and allowances used by auto salary.',
+  't2.structuresEmpty': 'No salary structures yet — add one per employee to enable auto salary.',
+  't2.addStructure': 'Add structure',
+  't2.editStructure': 'Edit salary structure',
+  't2.employee': 'Employee',
+  't2.basicPay': 'Basic pay (Rs)',
+  't2.allowancesJson': 'Allowances (JSON)',
+  't2.allowancesJsonPh': '{"hra": 12000, "transport": 5000}',
+  't2.effectiveFrom': 'Effective from',
+  't2.payFrequency': 'Pay frequency',
+  't2.monthly': 'Monthly',
+  't2.save': 'Save',
+  't2.cancel': 'Cancel',
+  't2.close': 'Close',
+  't2.basic': 'Basic pay',
+  't2.allowances': 'Allowances',
+  't2.structureSaved': 'Salary structure saved',
+  't2.salaryRules': 'Salary rules',
+  't2.salaryRulesSub': 'Deduction and overtime rules used by auto salary (stored in Settings).',
+  't2.absentDeductionPerDay': 'Absent divisor (per-day wage = monthly ÷ this)',
+  't2.lateGraceMinutes': 'Late grace (minutes)',
+  't2.latePenaltyMinutes': 'Late penalty (minutes of wage per late arrival)',
+  't2.overtimeRateMultiplier': 'Overtime rate multiplier',
+  't2.workHoursPerDay': 'Work hours per day',
+  't2.saveRules': 'Save rules',
+  't2.rulesSaved': 'Salary rules saved',
+  't2.generateTitle': 'Generate monthly salaries',
+  't2.generateSub': 'Computes salary from attendance, approved leaves and overtime for every active employee. Employees without a salary structure are skipped.',
+  't2.payrollMonth': 'Payroll month',
+  't2.generate': 'Generate salaries',
+  't2.generating': 'Generating…',
+  't2.results': 'Results',
+  't2.generatedOk': 'salaries generated',
+  't2.skipped': 'Skipped',
+  't2.salaryRuns': 'Salary runs',
+  't2.runsEmpty': 'No salary runs yet.',
+  't2.viewPayslips': 'View payslips',
+  't2.slipsEmpty': 'No payslips in this run.',
+  't2.payslip': 'Payslip',
+  't2.printPdf': 'Print / PDF',
+  't2.earnings': 'Earnings',
+  't2.deductions': 'Deductions',
+  't2.gross': 'Gross pay',
+  't2.absentDeduction': 'Absent deduction',
+  't2.lateDeduction': 'Late deduction',
+  't2.overtimePay': 'Overtime pay',
+  't2.netPay': 'Net pay',
+  't2.attendanceSummary': 'Attendance summary',
+  't2.present': 'Present',
+  't2.absent': 'Absent',
+  't2.paidLeave': 'Paid leave',
+  't2.unpaidLeave': 'Unpaid leave',
+  't2.lateArrivals': 'Late arrivals',
+  't2.overtimeHours': 'Overtime hours',
+  't2.workDays': 'Working days',
+  't2.days': 'days',
+  't2.times': 'times',
+  't2.proratedNote': 'Pro-rated for mid-month joining',
+  't2.month': 'Month',
+  't2.created': 'Created',
+  't2.payslips': 'Payslips',
+  't2.totalNet': 'Total net',
+  't2.status': 'Status',
+  't2.invalidMonth': 'Pick a month first',
+  't2.fillRequired': 'Employee and basic pay are required',
+  't2.edit': 'Edit',
+  't2.net': 'Net'
+});
+Object.assign(I18N.dict.ur, {
+  't2.salaries': 'تنخواہیں',
+  't2.salaryStructures': 'تنخواہ کے اسٹرکچر',
+  't2.structuresSub': 'خودکار تنخواہ کے لیے فی ملازم بنیادی تنخواہ اور الاؤنسز۔',
+  't2.structuresEmpty': 'ابھی کوئی تنخواہ اسٹرکچر نہیں — خودکار تنخواہ کے لیے ہر ملازم کا اسٹرکچر شامل کریں۔',
+  't2.addStructure': 'اسٹرکچر شامل کریں',
+  't2.editStructure': 'تنخواہ اسٹرکچر میں ترمیم',
+  't2.employee': 'ملازم',
+  't2.basicPay': 'بنیادی تنخواہ (روپے)',
+  't2.allowancesJson': 'الاؤنسز (JSON)',
+  't2.allowancesJsonPh': '{"hra": 12000, "transport": 5000}',
+  't2.effectiveFrom': 'نافذ از',
+  't2.payFrequency': 'ادائیگی کی مدت',
+  't2.monthly': 'ماہانہ',
+  't2.save': 'محفوظ کریں',
+  't2.cancel': 'منسوخ کریں',
+  't2.close': 'بند کریں',
+  't2.basic': 'بنیادی تنخواہ',
+  't2.allowances': 'الاؤنسز',
+  't2.structureSaved': 'تنخواہ اسٹرکچر محفوظ ہو گیا',
+  't2.salaryRules': 'تنخواہ کے اصول',
+  't2.salaryRulesSub': 'خودکار تنخواہ میں استعمال ہونے والے کٹوتی اور اوور ٹائم اصول (سیٹنگز میں محفوظ)۔',
+  't2.absentDeductionPerDay': 'غیر حاضری تقسیم کنندہ (یومیہ اجرت = ماہانہ ÷ یہ)',
+  't2.lateGraceMinutes': 'تاخیر کی رعایت (منٹ)',
+  't2.latePenaltyMinutes': 'تاخیر کا جرمانہ (فی تاخیر اجرت کے منٹ)',
+  't2.overtimeRateMultiplier': 'اوور ٹائم ریٹ ضرب',
+  't2.workHoursPerDay': 'یومیہ کام کے گھنٹے',
+  't2.saveRules': 'اصول محفوظ کریں',
+  't2.rulesSaved': 'تنخواہ کے اصول محفوظ ہو گئے',
+  't2.generateTitle': 'ماہانہ تنخواہیں بنائیں',
+  't2.generateSub': 'ہر فعال ملازم کی حاضری، منظور شدہ چھٹیوں اور اوور ٹائم سے تنخواہ نکالی جاتی ہے۔ جن کا اسٹرکچر نہیں انہیں چھوڑ دیا جاتا ہے۔',
+  't2.payrollMonth': 'تنخواہ کا مہینہ',
+  't2.generate': 'تنخواہیں بنائیں',
+  't2.generating': 'بنائی جا رہی ہیں…',
+  't2.results': 'نتائج',
+  't2.generatedOk': 'تنخواہیں بن گئیں',
+  't2.skipped': 'چھوڑے گئے',
+  't2.salaryRuns': 'تنخواہ کے رن',
+  't2.runsEmpty': 'ابھی کوئی تنخواہ رن نہیں۔',
+  't2.viewPayslips': 'پے سلپس دیکھیں',
+  't2.slipsEmpty': 'اس رن میں کوئی پے سلپ نہیں۔',
+  't2.payslip': 'پے سلپ',
+  't2.printPdf': 'پرنٹ / PDF',
+  't2.earnings': 'آمدنی',
+  't2.deductions': 'کٹوتیاں',
+  't2.gross': 'مجموعی تنخواہ',
+  't2.absentDeduction': 'غیر حاضری کٹوتی',
+  't2.lateDeduction': 'تاخیر کٹوتی',
+  't2.overtimePay': 'اوور ٹائم معاوضہ',
+  't2.netPay': 'خالص تنخواہ',
+  't2.attendanceSummary': 'حاضری کا خلاصہ',
+  't2.present': 'حاضر',
+  't2.absent': 'غیر حاضر',
+  't2.paidLeave': 'تنخواہ والی چھٹی',
+  't2.unpaidLeave': 'بغیر تنخواہ چھٹی',
+  't2.lateArrivals': 'تاخیر سے آمد',
+  't2.overtimeHours': 'اوور ٹائم گھنٹے',
+  't2.workDays': 'کام کے دن',
+  't2.days': 'دن',
+  't2.times': 'بار',
+  't2.proratedNote': 'مہینے کے درمیان شمولیت پر متناسب',
+  't2.month': 'مہینہ',
+  't2.created': 'بنایا گیا',
+  't2.payslips': 'پے سلپس',
+  't2.totalNet': 'کل خالص',
+  't2.status': 'حالت',
+  't2.invalidMonth': 'پہلے مہینہ منتخب کریں',
+  't2.fillRequired': 'ملازم اور بنیادی تنخواہ ضروری ہیں',
+  't2.edit': 'ترمیم',
+  't2.net': 'خالص'
+});
+
+const t2t = k => I18N.t('t2.' + k);
+
+function t2AllowSum(s){
+  let t = 0;
+  const d = s.allowancesDetail || {};
+  Object.keys(d).forEach(k => { t += Number(d[k]) || 0; });
+  return t;
+}
+
+window.SalaryUI = {
+  async renderSalariesTab(el, ctx){
+    const { emps, canEdit } = ctx;
+    const cid = uid('sal');
+    el.innerHTML = `
+      <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.05)] p-6 mb-5">
+        <div class="flex items-center justify-between mb-4">
+          <div><h3 class="font-display font-bold text-slate-800">${t2t('salaryStructures')}</h3>
+          <p class="text-xs text-slate-400 mt-0.5">${t2t('structuresSub')}</p></div>
+          ${canEdit ? `<button class="${btnS}" id="${cid}-add">+ ${t2t('addStructure')}</button>` : ''}
+        </div>
+        <div id="${cid}-structs"></div>
+      </div>
+      ${perm('settings','manage') ? `
+      <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.05)] p-6 mb-5">
+        <h3 class="font-display font-bold text-slate-800 mb-1">${t2t('salaryRules')}</h3>
+        <p class="text-xs text-slate-400 mb-4">${t2t('salaryRulesSub')}</p>
+        <div id="${cid}-rules" class="grid grid-cols-2 md:grid-cols-3 gap-4"></div>
+        <div class="flex justify-end mt-4"><button class="${btnP}" id="${cid}-saveRules">${t2t('saveRules')}</button></div>
+      </div>` : ''}
+      <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.05)] p-6 mb-5">
+        <h3 class="font-display font-bold text-slate-800 mb-1">${t2t('generateTitle')}</h3>
+        <p class="text-xs text-slate-400 mb-4">${t2t('generateSub')}</p>
+        <div class="flex flex-wrap items-end gap-3">
+          ${field(t2t('payrollMonth'), 'genMonth', { type: 'month', value: monthISO() })}
+          ${canEdit ? `<button class="${btnP}" id="${cid}-gen">${t2t('generate')}</button>` : ''}
+        </div>
+        <div id="${cid}-genResult" class="mt-5"></div>
+      </div>
+      <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.05)] p-6">
+        <h3 class="font-display font-bold text-slate-800 mb-4">${t2t('salaryRuns')}</h3>
+        <div id="${cid}-runs"></div>
+      </div>`;
+
+    const loadStructs = async () => {
+      const box = document.getElementById(cid + '-structs');
+      const rows = await API.call('listSalaryStructures').catch(() => []);
+      box.innerHTML = tableHTML([
+        { label: t2t('employee'), get: s => `<div><div class="font-medium text-slate-700">${esc(s.employeeName)}</div><div class="text-xs text-slate-400">${esc(s.employeeCode)}</div></div>` },
+        { label: t2t('basic'), num: 1, get: s => `<span class="tabular-nums">${fmt(s.basic)}</span>` },
+        { label: t2t('allowances'), num: 1, get: s => `<span class="tabular-nums text-emerald-600">+ ${fmt(t2AllowSum(s))}</span>` },
+        { label: t2t('effectiveFrom'), get: s => `<span class="text-xs text-slate-500">${fmtDate(s.effectiveFrom)}</span>` },
+        { label: '', get: s => canEdit ? `<div class="flex justify-end"><button class="${btnS} !px-3 !py-1.5 !text-xs" data-sedit="${s.id}">${t2t('edit')}</button></div>` : '' },
+      ], rows, { empty: t2t('structuresEmpty') });
+      box.querySelectorAll('[data-sedit]').forEach(b => b.onclick = () =>
+        SalaryUI.structureEditor(rows.find(x => x.id === b.dataset.sedit), emps, loadStructs));
+    };
+
+    const loadRules = async () => {
+      const box = document.getElementById(cid + '-rules');
+      if(!box) return;
+      const s = await API.call('getSettings').catch(() => ({}));
+      const R = [
+        ['absentDeductionPerDay', t2t('absentDeductionPerDay'), s.absentDeductionPerDay || '30'],
+        ['lateGraceMinutes', t2t('lateGraceMinutes'), s.lateGraceMinutes || '15'],
+        ['latePenaltyMinutes', t2t('latePenaltyMinutes'), s.latePenaltyMinutes || '60'],
+        ['overtimeRateMultiplier', t2t('overtimeRateMultiplier'), s.overtimeRateMultiplier || '1.5'],
+        ['salaryWorkHoursPerDay', t2t('workHoursPerDay'), s.salaryWorkHoursPerDay || '8'],
+      ];
+      box.innerHTML = R.map(([k, l, v]) => field(l, k, { type: 'number', value: v, min: 0, step: k === 'overtimeRateMultiplier' ? '0.1' : '1' })).join('');
+      document.getElementById(cid + '-saveRules').onclick = async () => {
+        const d = collectForm(box);
+        await API.call('saveSettings', d);
+        toast(t2t('rulesSaved'), 'success');
+      };
+    };
+
+    const loadRuns = async () => {
+      const box = document.getElementById(cid + '-runs');
+      const runs = (await API.call('listPayrollRuns').catch(() => [])).filter(r => (r.runType || 'manual') === 'salary');
+      box.innerHTML = tableHTML([
+        { label: t2t('month'), get: r => `<span class="font-semibold tabular-nums">${esc(r.month)}</span>` },
+        { label: t2t('created'), get: r => `<span class="text-xs text-slate-500">${esc(r.createdAt)}</span>` },
+        { label: t2t('payslips'), num: 1, get: r => fmtNum(r.slipCount) },
+        { label: t2t('totalNet'), num: 1, get: r => `<span class="tabular-nums font-semibold">${fmt(r.totalNet)}</span>` },
+        { label: t2t('status'), get: r => badge(r.status === 'finalized' ? 'Finalized' : 'Draft', r.status === 'finalized' ? 'teal' : 'slate') },
+        { label: '', get: r => `<div class="flex justify-end"><button class="${btnS} !px-3 !py-1.5 !text-xs" data-vrun="${r.id}">${t2t('viewPayslips')}</button></div>` },
+      ], runs, { empty: t2t('runsEmpty') });
+      box.querySelectorAll('[data-vrun]').forEach(b => b.onclick = () => SalaryUI.viewSalaryRun(b.dataset.vrun, canEdit));
+    };
+
+    const addB = document.getElementById(cid + '-add');
+    if(addB) addB.onclick = () => SalaryUI.structureEditor(null, emps, loadStructs);
+
+    const genB = document.getElementById(cid + '-gen');
+    if(genB) genB.onclick = async () => {
+      const m = formVal(el, 'genMonth');
+      if(!m){ toast(t2t('invalidMonth'), 'warn'); return; }
+      genB.disabled = true; genB.textContent = t2t('generating');
+      try{
+        const r = await API.call('generateMonthlySalaries', m);
+        const box = document.getElementById(cid + '-genResult');
+        box.innerHTML = `
+          <h4 class="font-bold text-slate-700 text-sm mb-2">${t2t('results')} — <span class="tabular-nums">${esc(r.month)}</span>
+            <span class="text-emerald-600 ml-2">${r.generated.length} ${t2t('generatedOk')}</span>
+            ${r.skipped.length ? `<span class="text-amber-600 ml-2">${t2t('skipped')}: ${r.skipped.length}</span>` : ''}</h4>` +
+          tableHTML([
+            { label: t2t('employee'), get: g => `<div><div class="font-medium text-slate-700">${esc(g.employeeName)}</div><div class="text-xs text-slate-400">${esc(g.employeeCode)}</div></div>` },
+            { label: t2t('present'), num: 1, get: g => fmtNum(g.daysPresent) },
+            { label: t2t('absent'), num: 1, get: g => fmtNum(g.daysAbsent) },
+            { label: t2t('lateArrivals'), num: 1, get: g => fmtNum(g.lateCount) },
+            { label: t2t('overtimeHours'), num: 1, get: g => fmtNum(g.overtimeHours) },
+            { label: t2t('net'), num: 1, get: g => `<span class="tabular-nums font-bold text-teal-700">${fmt(g.net)}</span>` },
+          ], r.generated, { empty: t2t('slipsEmpty') }) +
+          (r.skipped.length ? `<h4 class="font-bold text-amber-700 text-sm mt-4 mb-2">${t2t('skipped')}</h4>` +
+            tableHTML([
+              { label: t2t('employee'), get: g => `<span class="font-medium text-slate-700">${esc(g.employeeName)}</span>` },
+              { label: 'Reason', get: g => `<span class="text-xs text-amber-700">${esc(g.reason)}</span>` },
+            ], r.skipped, {}) : '');
+        toast(r.generated.length + ' ' + t2t('generatedOk'), 'success');
+        loadRuns();
+      }catch(e){ toast(e.message, 'error'); }
+      genB.disabled = false; genB.textContent = t2t('generate');
+    };
+
+    await loadStructs(); await loadRules(); await loadRuns();
+  },
+
+  structureEditor(s, emps, onDone){
+    const isNew = !s; s = s || { employeeId: '', basic: '', allowancesJson: '', effectiveFrom: todayISO(), payFrequency: 'monthly' };
+    const m = modal(isNew ? t2t('addStructure') : t2t('editStructure'), `
+      <div class="grid grid-cols-2 gap-4">
+        <div class="col-span-2">${field(t2t('employee'), 'employeeId', { type: 'select', value: s.employeeId, req: true,
+          options: emps.filter(e => e.active).map(e => ({ value: e.id, label: e.name + ' (' + e.code + ')' })) })}</div>
+        ${field(t2t('basicPay'), 'basic', { type: 'number', value: s.basic, min: 1, req: true })}
+        ${field(t2t('effectiveFrom'), 'effectiveFrom', { type: 'date', value: s.effectiveFrom || todayISO(), req: true })}
+        <div class="col-span-2">${field(t2t('allowancesJson'), 'allowancesJson', { type: 'textarea', value: s.allowancesJson || '', ph: t2t('allowancesJsonPh') })}</div>
+        ${field(t2t('payFrequency'), 'payFrequency', { type: 'select', value: s.payFrequency || 'monthly',
+          options: [{ value: 'monthly', label: t2t('monthly') }] })}
+      </div>
+      <div class="flex justify-end gap-2 mt-6"><button class="${btnS}" id="sCancel">${t2t('cancel')}</button><button class="${btnP}" id="sSave">${t2t('save')}</button></div>`);
+    m.el.querySelector('#sCancel').onclick = () => m.close();
+    m.el.querySelector('#sSave').onclick = async () => {
+      const d = collectForm(m.el);
+      if(!d.employeeId || !Number(d.basic)){ toast(t2t('fillRequired'), 'warn'); return; }
+      try{
+        if((d.allowancesJson || '').trim()) JSON.parse(d.allowancesJson);
+      }catch(e){ toast('Allowances JSON: ' + e.message, 'error'); return; }
+      await API.call('saveSalaryStructure', { ...(isNew ? {} : { id: s.id }), ...d });
+      m.close(); toast(t2t('structureSaved'), 'success'); onDone && onDone();
+    };
+  },
+
+  async viewSalaryRun(runId, canEdit){
+    const slips = await API.call('listPayslips', runId);
+    const m = modal(t2t('salaryRuns') + ' — ' + (slips[0] ? slips[0].month : ''), `<div id="t2slips"></div>`, { wide: true });
+    const box = m.el.querySelector('#t2slips');
+    box.innerHTML = tableHTML([
+      { label: t2t('employee'), get: p => `<div><div class="font-medium text-slate-700">${esc(p.employeeName)}</div><div class="text-xs text-slate-400">${esc(p.employeeCode)}</div></div>` },
+      { label: t2t('basic'), num: 1, get: p => `<span class="tabular-nums">${fmt(p.salary)}</span>` },
+      { label: t2t('allowances'), num: 1, get: p => `<span class="tabular-nums text-emerald-600">+${fmt(p.allowances)}</span>` },
+      { label: t2t('deductions'), num: 1, get: p => `<span class="tabular-nums text-red-500">−${fmt(p.deductions)}</span>` },
+      { label: t2t('netPay'), num: 1, get: p => `<span class="tabular-nums font-bold">${fmt(p.net)}</span>` },
+      { label: '', get: p => `<div class="flex justify-end"><button class="${btnS} !px-3 !py-1.5 !text-xs" data-slip="${p.employeeId}">${t2t('payslip')}</button></div>` },
+    ], slips, { empty: t2t('slipsEmpty') });
+    box.querySelectorAll('[data-slip]').forEach(b => b.onclick = async () => {
+      const d = await API.call('getSalaryPayslip', runId, b.dataset.slip);
+      SalaryUI.payslipModal(d);
+    });
+  },
+
+  payslipModal(d){
+    const b = d.breakdown || {};
+    const allowRows = Object.keys(b.allowancesDetail || {}).map(k =>
+      `<tr><td class="py-1.5 text-slate-500 pl-4">· ${esc(k)}</td><td class="py-1.5 text-right tabular-nums">${fmt(b.allowancesDetail[k])}</td></tr>`).join('');
+    const attRows = [
+      [t2t('workDays'), b.workDays], [t2t('present'), b.daysPresent], [t2t('absent'), b.daysAbsent],
+      [t2t('paidLeave'), b.paidLeaveDays], [t2t('unpaidLeave'), b.unpaidLeaveDays],
+      [t2t('lateArrivals'), b.lateCount], [t2t('overtimeHours'), b.overtimeHours],
+    ].map(([l, v]) => `<div class="flex justify-between py-1"><span class="text-slate-500">${l}</span><span class="tabular-nums font-medium">${v == null ? '—' : v}</span></div>`).join('');
+    const html = `
+    <style>
+      .t2slip{font-family:Arial,Helvetica,sans-serif;color:#111;max-width:680px;margin:0 auto;font-size:13px}
+      .t2slip table{width:100%;border-collapse:collapse}
+      .t2slip .sec{font-weight:700;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:#0f766e;margin:14px 0 6px}
+      .t2slip td{padding:3px 0}
+      @media print{
+        body{padding:0 !important;margin:0 !important}
+        .t2slip{max-width:100%}
+        .t2actions{display:none !important}
+      }
+    </style>
+    <div class="t2slip" id="t2slipPrint">
+      <div style="text-align:center;border-bottom:3px solid #0f766e;padding-bottom:10px;margin-bottom:12px">
+        <div style="font-size:20px;font-weight:800">${esc(d.company || 'Attendance Management System')}</div>
+        <div style="font-size:13px;color:#444;margin-top:2px">${t2t('payslip')} — <span class="tabular-nums">${esc(d.run.month || '')}</span></div>
+      </div>
+      <table><tr>
+        <td style="width:50%;vertical-align:top">
+          <div style="font-weight:700;font-size:15px">${esc(d.employee.name || '')}</div>
+          <div style="color:#555;font-size:12px">${esc(d.employee.code || '')}</div>
+        </td>
+        <td style="width:50%;vertical-align:top;text-align:right;font-size:12px;color:#555">
+          <div>${t2t('status')}: ${(d.payslip.paid ? 'Paid' : 'Unpaid')}</div>
+          ${b.prorated ? `<div style="color:#b45309">${t2t('proratedNote')}</div>` : ''}
+        </td>
+      </tr></table>
+      <div class="sec">${t2t('earnings')}</div>
+      <table>
+        <tr><td class="py-1.5 text-slate-500">${t2t('basic')}</td><td class="py-1.5 text-right tabular-nums">${fmt(b.basic || 0)}</td></tr>
+        ${allowRows}
+        <tr><td class="py-1.5 font-semibold">${t2t('gross')}</td><td class="py-1.5 text-right tabular-nums font-semibold">${fmt(b.gross || 0)}</td></tr>
+      </table>
+      <div class="sec">${t2t('deductions')}</div>
+      <table>
+        <tr><td class="py-1.5 text-slate-500">${t2t('absentDeduction')} (${b.daysAbsent || 0} + ${b.unpaidLeaveDays || 0} ${t2t('days')})</td><td class="py-1.5 text-right tabular-nums">− ${fmt(b.absentDeduction || 0)}</td></tr>
+        <tr><td class="py-1.5 text-slate-500">${t2t('lateDeduction')} (${b.lateCount || 0} ${t2t('times')})</td><td class="py-1.5 text-right tabular-nums">− ${fmt(b.lateDeduction || 0)}</td></tr>
+        <tr><td class="py-1.5 text-slate-500">${t2t('overtimePay')} (${b.overtimeHours || 0} h)</td><td class="py-1.5 text-right tabular-nums">+ ${fmt(b.overtimePay || 0)}</td></tr>
+      </table>
+      <div style="border-top:2px solid #0f766e;margin-top:8px;padding-top:8px;display:flex;justify-content:space-between;align-items:center">
+        <span style="font-weight:800;font-size:15px">${t2t('netPay')}</span>
+        <span class="tabular-nums" style="font-weight:800;font-size:18px;color:#0f766e">${fmt(d.payslip.net)}</span>
+      </div>
+      <div class="sec">${t2t('attendanceSummary')}</div>
+      <div style="columns:2;column-gap:24px">${attRows}</div>
+      <div style="display:flex;justify-content:space-between;margin-top:36px;font-size:12px;color:#555">
+        <div style="border-top:1px solid #999;padding-top:4px;width:40%;text-align:center">Employee signature</div>
+        <div style="border-top:1px solid #999;padding-top:4px;width:40%;text-align:center">Authorized signature</div>
+      </div>
+    </div>
+    <div class="t2actions flex justify-end gap-2 mt-6">
+      <button class="${btnS}" id="t2pClose">${t2t('close')}</button>
+      <button class="${btnP}" id="t2pPrint">${t2t('printPdf')}</button>
+    </div>`;
+    const m = modal(t2t('payslip') + ' — ' + (d.employee.name || ''), html, { wide: true });
+    m.el.querySelector('#t2pClose').onclick = () => m.close();
+    m.el.querySelector('#t2pPrint').onclick = () =>
+      printHTML(m.el.querySelector('#t2slipPrint').outerHTML, t2t('payslip') + ' ' + (d.employee.name || '') + ' ' + (d.run.month || ''));
+  }
+};
+})();
+
+</script>
