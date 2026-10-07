@@ -9,41 +9,39 @@
 
 App.nav.push({group:'WORKFORCE', path:'#/sites', label:I18N.t('c4.nav.sites'), labelKey:'c4.nav.sites', icon:'sites', perm:'sites'});
 
-/* Verola tokens (local) */
-const vBtnB='px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold shadow active:scale-[.98] transition';
-const vBtnSx='px-3 py-1.5 rounded-xl bg-white border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-xs font-semibold text-slate-600 active:scale-[.98] transition shadow-sm';
+/* Sites uses global Verola tokens: btnP, btnS, badge(), avatar(), tableHTML(), vFilterRow() from 00_utils.js */
 function vHead(title, sub, actions){
-  return `<div class="flex items-center gap-2 text-[13px] text-slate-400 mb-4 anim-fadeUp"><span class="text-base">⌂</span><a href="#/dashboard" class="hover:text-slate-600">${I18N.t('c4.nav.dashboard')}</a><span>›</span><span class="text-slate-700 font-semibold">${title}</span></div>
-  <div class="flex flex-wrap items-center justify-between gap-3 mb-5 anim-fadeUp"><div><h1 class="font-display text-[26px] font-bold text-slate-800 tracking-tight">${title}</h1><p class="text-sm text-slate-400 mt-1">${sub}</p></div><div class="flex gap-2 flex-wrap">${actions||''}</div></div>`;
-}
-function vBadge(ok, yesTxt, noTxt){
-  return ok
-    ?`<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 whitespace-nowrap"><span class="text-[10px]">✓</span>${yesTxt}</span>`
-    :`<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-500 ring-1 ring-slate-200 whitespace-nowrap"><span class="text-[10px]">–</span>${noTxt}</span>`;
+  return `<div class="flex flex-wrap items-center justify-between gap-3 mb-5 anim-fadeUp"><div><h1 class="font-display text-[26px] font-bold text-slate-900 tracking-tight">${title}</h1><p class="text-sm text-slate-400 mt-1">${sub}</p></div><div class="flex gap-2 flex-wrap">${actions||''}</div></div>`;
 }
 
 App.routes['#/sites'] = async (el)=>{
   const cid=uid('sites');
   el.innerHTML=vHead(I18N.t('c4.nav.sites'),I18N.t('c4.sites.sub'),
-    `${perm('sites','edit')?`<button class="${vBtnB}" id="${cid}-add">${I18N.t('c4.sites.addSite')}</button>`:''}`)+
+    `${perm('sites','edit')?`<button class="${btnP}" id="${cid}-add">${I18N.t('c4.sites.addSite')}</button>`:''}`)+
     `<div id="${cid}-body"></div>`;
   const body=document.getElementById(cid+'-body');
-  let sites=[], emps=[];
+  let sites=[], emps=[], q='';
   async function load(){
     sites=await API.call('listSites');
     emps=await API.call('listEmployees');
-    body.innerHTML=tableHTML([
-      {label:I18N.t('c4.sites.colSite'), get:s=>`<div class="flex items-center gap-3"><span class="w-8 h-8 rounded-full bg-slate-200 text-slate-500 text-[11px] font-bold inline-flex items-center justify-center shrink-0"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-3.5 h-3.5"><path d="M12 21s-7-5.5-7-11a7 7 0 0114 0c0 5.5-7 11-7 11z"/><circle cx="12" cy="10" r="2.6"/></svg></span><div><div class="font-semibold text-slate-700">${esc(s.name)}</div><div class="text-xs text-slate-400">${esc(s.address||'—')}</div></div></div>`},
+    render();
+  }
+  function render(){
+    const rows=sites.filter(s=>!q||(s.name+' '+(s.address||'')).toLowerCase().includes(q));
+    body.innerHTML=vFilterRow(I18N.t('c4.sites.searchPh'),[])+tableHTML([
+      {label:I18N.t('c4.sites.colSite'), get:s=>`<div class="flex items-center gap-3"><span class="w-8 h-8 rounded-full bg-slate-200 text-slate-500 inline-flex items-center justify-center shrink-0"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-3.5 h-3.5"><path d="M12 21s-7-5.5-7-11a7 7 0 0114 0c0 5.5-7 11-7 11z"/><circle cx="12" cy="10" r="2.6"/></svg></span><div><div class="font-semibold text-slate-700">${esc(s.name)}</div><div class="text-xs text-slate-400">${esc(s.address||'—')}</div></div></div>`},
       {label:I18N.t('c4.sites.colCoords'), get:s=>`<span class="font-mono text-xs text-slate-500">${Number(s.lat).toFixed(4)}, ${Number(s.lng).toFixed(4)}</span>`},
       {label:I18N.t('c4.sites.colGeofence'), num:1, get:s=>`<span class="tabular-nums text-slate-600">${fmtNum(s.radiusM)} m</span>`},
       {label:I18N.t('c4.sites.colStaff'), num:1, get:s=>`<span class="tabular-nums font-medium text-slate-700">${fmtNum(s.employeeCount||0)}</span>`},
-      {label:I18N.t('c4.common.status'), get:s=>vBadge(s.active, I18N.t('c4.common.active'), I18N.t('c4.common.inactive'))},
-      {label:'', get:s=>`<div class="flex gap-1 justify-end">
-        <button class="${vBtnSx}" data-map="${s.id}">${I18N.t('c4.sites.mapBtn')}</button>
-        ${perm('sites','edit')?`<button class="${vBtnSx}" data-assign="${s.id}">${I18N.t('c4.sites.assignStaff')}</button>
-        <button class="${vBtnSx}" data-edit="${s.id}">${I18N.t('c4.common.edit')}</button>
-        <button class="${vBtnSx} !text-red-600" data-del="${s.id}">${I18N.t('c4.common.delete')}</button>`:''}</div>`},
-    ], sites, {empty:I18N.t('c4.sites.emptySites')});
+      {label:I18N.t('c4.common.status'), get:s=>badge(s.active?I18N.t('c4.common.active'):I18N.t('c4.common.inactive'), s.active?'emerald':'slate')},
+      {label:'', nosort:1, get:s=>`<div class="flex gap-1 justify-end">
+        <button class="${btnS} !px-3 !py-1.5 !text-xs" data-map="${s.id}">${I18N.t('c4.sites.mapBtn')}</button>
+        ${perm('sites','edit')?`<button class="${btnS} !px-3 !py-1.5 !text-xs" data-assign="${s.id}">${I18N.t('c4.sites.assignStaff')}</button>
+        <button class="${btnS} !px-3 !py-1.5 !text-xs" data-edit="${s.id}">${I18N.t('c4.common.edit')}</button>
+        <button class="${btnS} !px-3 !py-1.5 !text-xs !text-red-600" data-del="${s.id}">${I18N.t('c4.common.delete')}</button>`:''}</div>`},
+    ], rows, {empty:I18N.t('c4.sites.emptySites')});
+    const si=body.querySelector('[data-vf-search]');
+    if(si){ si.value=q; si.oninput=debounce(()=>{ q=si.value.trim().toLowerCase(); render(); const nsi=body.querySelector('[data-vf-search]'); if(nsi){ nsi.focus(); nsi.setSelectionRange(nsi.value.length,nsi.value.length); } }); }
     body.querySelectorAll('[data-map]').forEach(b=>b.onclick=()=>openMapView(sites.find(s=>s.id===b.dataset.map)));
     body.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openEditor(sites.find(s=>s.id===b.dataset.edit)));
     body.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{
@@ -86,7 +84,7 @@ App.routes['#/sites'] = async (el)=>{
       </div>
       <div id="mapPick" class="h-64 rounded-2xl border border-slate-200/70 overflow-hidden mb-2"></div>
       <p class="text-xs text-slate-400 mb-4">${I18N.t('c4.sites.mapHint')}</p>
-      <div class="flex justify-end gap-2"><button class="${btnS}" id="sCancel">${I18N.t('c4.common.cancel')}</button><button class="${vBtnB}" id="sSave">${I18N.t('c4.sites.saveSite')}</button></div>`,{wide:true});
+      <div class="flex justify-end gap-2"><button class="${btnS}" id="sCancel">${I18N.t('c4.common.cancel')}</button><button class="${btnP}" id="sSave">${I18N.t('c4.sites.saveSite')}</button></div>`,{wide:true});
     const mapEl=m.el.querySelector('#mapPick');
     const map=buildMap(mapEl,[Number(s.lat),Number(s.lng)],14);
     let marker=null, circle=null;
@@ -127,7 +125,7 @@ App.routes['#/sites'] = async (el)=>{
           <span class="w-8 h-8 rounded-full bg-slate-200 text-slate-500 text-[11px] font-bold inline-flex items-center justify-center shrink-0">${esc((String(e.name||'?').trim().split(/\s+/).map(w=>w[0]).join('')||'?').slice(0,2).toUpperCase())}</span>
           <span class="text-sm font-medium text-slate-700">${esc(e.name)}</span><span class="text-xs text-slate-400 ml-auto">${esc(e.code)}</span></label>`).join('')}
       </div>
-      <div class="flex justify-end gap-2"><button class="${btnS}" id="aCancel">${I18N.t('c4.common.cancel')}</button><button class="${vBtnB}" id="aSave">${I18N.t('c4.sites.saveAssignments')}</button></div>`);
+      <div class="flex justify-end gap-2"><button class="${btnS}" id="aCancel">${I18N.t('c4.common.cancel')}</button><button class="${btnP}" id="aSave">${I18N.t('c4.sites.saveAssignments')}</button></div>`);
     m.el.querySelector('#aCancel').onclick=()=>m.close();
     m.el.querySelector('#aSave').onclick=async()=>{
       const ids=[...m.el.querySelectorAll('[name="emp"]:checked')].map(x=>x.value);
@@ -149,24 +147,17 @@ App.routes['#/sites'] = async (el)=>{
 
 App.nav.push({group:'WORKFORCE', path:'#/shifts', label:I18N.t('c4.nav.shifts'), labelKey:'c4.nav.shifts', icon:'shifts', perm:'shifts'});
 
-/* Verola tokens (local) */
-const vBtnB='px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold shadow active:scale-[.98] transition';
-const vBtnSx='px-3 py-1.5 rounded-xl bg-white border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-xs font-semibold text-slate-600 active:scale-[.98] transition shadow-sm';
+/* Shifts uses global Verola tokens: btnP, btnS, badge(), avatar(), tableHTML() from 00_utils.js */
 const vCard='bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.04)] p-6';
 function vHead(title, sub, actions){
-  return `<div class="flex items-center gap-2 text-[13px] text-slate-400 mb-4 anim-fadeUp"><span class="text-base">⌂</span><a href="#/dashboard" class="hover:text-slate-600">${I18N.t('c4.nav.dashboard')}</a><span>›</span><span class="text-slate-700 font-semibold">${title}</span></div>
-  <div class="flex flex-wrap items-center justify-between gap-3 mb-5 anim-fadeUp"><div><h1 class="font-display text-[26px] font-bold text-slate-800 tracking-tight">${title}</h1><p class="text-sm text-slate-400 mt-1">${sub}</p></div><div class="flex gap-2 flex-wrap">${actions||''}</div></div>`;
-}
-function vAvatar(name){
-  const init=(String(name||'?').trim().split(/\s+/).map(w=>w[0]).join('')||'?').slice(0,2).toUpperCase();
-  return `<span class="w-8 h-8 rounded-full bg-slate-200 text-slate-500 text-[11px] font-bold inline-flex items-center justify-center shrink-0">${esc(init)}</span>`;
+  return `<div class="flex flex-wrap items-center justify-between gap-3 mb-5 anim-fadeUp"><div><h1 class="font-display text-[26px] font-bold text-slate-900 tracking-tight">${title}</h1><p class="text-sm text-slate-400 mt-1">${sub}</p></div><div class="flex gap-2 flex-wrap">${actions||''}</div></div>`;
 }
 
 App.routes['#/shifts'] = async (el)=>{
   const cid=uid('shift');
   const canEdit=perm('shifts','edit');
   el.innerHTML=vHead(I18N.t('c4.nav.shifts'),I18N.t('c4.shifts.sub'),
-    `${canEdit?`<button class="${vBtnB}" id="${cid}-add">${I18N.t('c4.shifts.addShift')}</button>`:''}`)+`
+    `${canEdit?`<button class="${btnP}" id="${cid}-add">${I18N.t('c4.shifts.addShift')}</button>`:''}`)+`
   <div class="grid grid-cols-1 xl:grid-cols-3 gap-4">
     <div class="${vCard}">
       <h3 class="font-bold text-slate-800 text-[15px] mb-4">${I18N.t('c4.shifts.shiftTemplates')}</h3>
@@ -195,7 +186,7 @@ App.routes['#/shifts'] = async (el)=>{
         <div class="w-11 h-11 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center shrink-0">${App.ICONS.shifts}</div>
         <div class="flex-1 min-w-0"><div class="font-semibold text-slate-700 text-sm">${esc(s.name)}</div>
           <div class="text-xs text-slate-400 tabular-nums mt-0.5">${esc(s.startTime)} – ${esc(s.endTime)} · ${I18N.t('c4.shifts.graceN').replace('{n}',s.graceMin)}</div></div>
-        ${canEdit?`<div class="flex gap-1"><button class="${vBtnSx}" data-se="${s.id}">${I18N.t('c4.common.edit')}</button><button class="${vBtnSx} !text-red-600" data-sd="${s.id}">✕</button></div>`:''}
+        ${canEdit?`<div class="flex gap-1"><button class="${btnS} !px-3 !py-1.5 !text-xs" data-se="${s.id}">${I18N.t('c4.common.edit')}</button><button class="${btnS} !px-3 !py-1.5 !text-xs !text-red-600" data-sd="${s.id}">✕</button></div>`:''}
       </div>`).join('')||'<p class="text-sm text-slate-400 py-6 text-center">'+I18N.t('c4.shifts.emptyShifts')+'</p>';
     shiftsEl.querySelectorAll('[data-se]').forEach(b=>b.onclick=()=>openShiftEditor(shifts.find(s=>s.id===b.dataset.se)));
     shiftsEl.querySelectorAll('[data-sd]').forEach(b=>b.onclick=async()=>{
@@ -208,10 +199,10 @@ App.routes['#/shifts'] = async (el)=>{
     emps=await API.call('listEmployees');
     sites=await API.call('listSites');
     rosterEl.innerHTML=tableHTML([
-      {label:I18N.t('c4.common.employee'), get:r=>`<div class="flex items-center gap-3">${vAvatar(r.employeeName)}<span class="font-medium text-slate-700">${esc(r.employeeName||'—')}</span></div>`},
-      {label:I18N.t('c4.shifts.colShift'), get:r=>`<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-600 ring-1 ring-slate-200 whitespace-nowrap">${esc(r.shiftName||'—')}</span>`},
+      {label:I18N.t('c4.common.employee'), get:r=>`<div class="flex items-center gap-3">${avatar(r.employeeName)}<span class="font-medium text-slate-700">${esc(r.employeeName||'—')}</span></div>`},
+      {label:I18N.t('c4.shifts.colShift'), get:r=>`${badge(r.shiftName||'—','slate')}`},
       {label:I18N.t('c4.common.site'), get:r=>`<span class="text-slate-600">${esc(r.siteName||'—')}</span>`},
-      {label:'', get:r=>canEdit?`<div class="flex gap-1 justify-end"><button class="${vBtnSx} !text-red-600" data-rd="${r.id}">${I18N.t('c4.common.remove')}</button></div>`:''},
+      {label:'', get:r=>canEdit?`<div class="flex gap-1 justify-end"><button class="${btnS} !px-3 !py-1.5 !text-xs !text-red-600" data-rd="${r.id}">${I18N.t('c4.common.remove')}</button></div>`:''},
     ], rosters, {empty:I18N.t('c4.shifts.emptyRoster')});
     rosterEl.querySelectorAll('[data-rd]').forEach(b=>b.onclick=async()=>{
       await API.call('deleteRoster',b.dataset.rd); toast(I18N.t('c4.shifts.removed'),'success'); loadRoster();
@@ -226,7 +217,7 @@ App.routes['#/shifts'] = async (el)=>{
         ${field(I18N.t('c4.shifts.fEndTime'),'endTime',{value:s.endTime,type:'time',req:true})}
         <div class="col-span-2">${field(I18N.t('c4.shifts.fGrace'),'graceMin',{value:s.graceMin,type:'number',min:0})}</div>
       </div>
-      <div class="flex justify-end gap-2 mt-6"><button class="${btnS}" id="sCancel">${I18N.t('c4.common.cancel')}</button><button class="${vBtnB}" id="sSave">${I18N.t('c4.shifts.saveShift')}</button></div>`);
+      <div class="flex justify-end gap-2 mt-6"><button class="${btnS}" id="sCancel">${I18N.t('c4.common.cancel')}</button><button class="${btnP}" id="sSave">${I18N.t('c4.shifts.saveShift')}</button></div>`);
     m.el.querySelector('#sCancel').onclick=()=>m.close();
     m.el.querySelector('#sSave').onclick=async()=>{
       const data=collectForm(m.el);
@@ -245,7 +236,7 @@ App.routes['#/shifts'] = async (el)=>{
         ${field(I18N.t('c4.shifts.fShift'),'shiftId',{type:'select',options:shifts.map(s=>({value:s.id,label:s.name+' ('+s.startTime+'–'+s.endTime+')'}))})}
         ${field(I18N.t('c4.common.site'),'siteId',{type:'select',options:[{value:'',label:I18N.t('c4.shifts.noSite')}].concat(sites.filter(s=>s.active).map(s=>({value:s.id,label:s.name})))})}
       </div>
-      <div class="flex justify-end gap-2"><button class="${btnS}" id="rCancel">${I18N.t('c4.common.cancel')}</button><button class="${vBtnB}" id="rSave">${I18N.t('c4.shifts.assignBtn')}</button></div>`);
+      <div class="flex justify-end gap-2"><button class="${btnS}" id="rCancel">${I18N.t('c4.common.cancel')}</button><button class="${btnP}" id="rSave">${I18N.t('c4.shifts.assignBtn')}</button></div>`);
     m.el.querySelector('#rCancel').onclick=()=>m.close();
     m.el.querySelector('#rSave').onclick=async()=>{
       await API.call('saveRoster',{date:dateEl.value,...collectForm(m.el)});
@@ -266,56 +257,51 @@ App.routes['#/shifts'] = async (el)=>{
 App.nav.push({group:'MAIN', path:'#/attendance', label:I18N.t('c4.nav.attendance'), labelKey:'c4.nav.attendance', icon:'attendance', perm:'attendance'});
 
 /* ---------- Verola bits (shared style with payroll) ---------- */
-function vAvatar(name){
-  const init=(String(name||'?').trim().split(/\s+/).map(w=>w[0]).join('')||'?').slice(0,2).toUpperCase();
-  return `<span class="w-8 h-8 rounded-full bg-slate-200 text-slate-500 text-[11px] font-bold inline-flex items-center justify-center shrink-0">${esc(init)}</span>`;
-}
-function vCrumb(page){
-  return `<div class="flex items-center gap-2 text-[13px] text-slate-400 mb-4 anim-fadeUp">
-    <span class="text-base">⌂</span><a href="#/dashboard" class="hover:text-slate-600">${I18N.t('c4.nav.dashboard')}</a><span>›</span><span class="text-slate-700 font-semibold">${page}</span></div>`;
-}
+function vAvatar(name){ return avatar(name); }
+
 function vTabs(tab){
   return `<div class="flex gap-2 mb-5 flex-wrap">${[['log',I18N.t('c4.att.tabLog')],['map',I18N.t('c4.att.tabMap')],['corrections',I18N.t('c4.att.tabCorrections')]].map(([k,l])=>
     `<a href="#/attendance${k==='log'?'':'?tab='+k}" class="px-4 py-2 rounded-xl text-sm font-semibold transition ${tab===k?'bg-slate-900 text-white shadow':'bg-white text-slate-500 border border-slate-200 hover:border-slate-300'}">${l}</a>`).join('')}</div>`;
 }
 const V_BLACK='px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold shadow active:scale-[.98] transition';
-function vKpi(label, value, sub, ico){
+function vKpi(label, value, sub, ico, trend){
+  /* trend: {pct:number, label:string} or null — Verola pill badge like the reference */
+  const up = trend && trend.pct >= 0;
+  const tr = (trend && isFinite(trend.pct))
+    ? `<div class="flex items-center gap-1.5 mt-1.5"><span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold ${up?'bg-emerald-50 text-emerald-600':'bg-red-50 text-red-600'}">${up?'↗':'↘'} ${Math.abs(trend.pct).toFixed(1)}%</span><span class="text-xs text-slate-400">${esc(trend.label||'vs last week')}</span></div>`
+    : (sub?`<div class="text-xs text-slate-400 mt-1.5">${sub}</div>`:'');
   return `<div class="bg-white rounded-2xl border border-slate-200/70 p-5 shadow-[0_1px_3px_rgba(15,23,42,.04)]">
     <div class="flex items-center gap-2.5 mb-4">
       <span class="w-9 h-9 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center shrink-0">${ico}</span>
       <span class="text-[13px] text-slate-500 font-medium">${label}</span>
+      <span class="ml-auto w-7 h-7 rounded-lg bg-slate-50 border border-slate-100 text-slate-400 text-sm font-bold flex items-center justify-center shrink-0 select-none">···</span>
     </div>
     <div class="text-[26px] font-bold text-slate-900 tabular-nums tracking-tight">${value}</div>
-    ${sub?`<div class="text-xs text-slate-400 mt-1.5">${sub}</div>`:''}
+    ${tr}
   </div>`;
 }
 function vPill(text, color, icon){
   const c={emerald:'bg-emerald-50 text-emerald-700 ring-emerald-200',amber:'bg-amber-50 text-amber-700 ring-amber-200',red:'bg-red-50 text-red-600 ring-red-200',slate:'bg-slate-100 text-slate-500 ring-slate-200',teal:'bg-teal-50 text-teal-700 ring-teal-200',blue:'bg-blue-50 text-blue-700 ring-blue-200'}[color]||'bg-slate-100 text-slate-500 ring-slate-200';
   return `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${c} ring-1 whitespace-nowrap">${icon?`<span class="text-[10px]">${icon}</span>`:''}${text}</span>`;
 }
-function vPaginate(pg, st, render){
-  const pages=Math.max(1,Math.ceil(st.total/st.per));
-  if(st.page>pages) st.page=pages;
-  const from=st.total?(st.page-1)*st.per+1:0, to=Math.min(st.total,st.page*st.per);
-  let nums=''; for(let p=1;p<=pages;p++){ if(p===1||p===pages||Math.abs(p-st.page)<=1) nums+=`<button data-pg="${p}" class="min-w-[32px] h-8 px-2 rounded-lg text-[13px] font-semibold ${p===st.page?'bg-slate-900 text-white':'text-slate-500 hover:bg-slate-100'}">${p}</button>`; else if(!nums.endsWith('…')) nums+='<span class="text-slate-300">…</span>'; }
-  pg.innerHTML=`
-    <button data-pgprev class="w-8 h-8 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40" ${st.page<=1?'disabled':''}>‹</button>${nums}
-    <button data-pgnext class="w-8 h-8 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40" ${st.page>=pages?'disabled':''}>›</button>
-    <span class="ml-auto text-xs text-slate-400">Showing ${from} to ${to} of ${st.total} entries</span>
-    <select data-per class="bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs font-medium text-slate-600">${[8,16,50].map(n=>`<option ${n===st.per?'selected':''}>${n}</option>`).join('')}</select>`;
-  if(!pg) return;
-  const bPrev=pg.querySelector('[data-pgprev]'); if(bPrev) bPrev.onclick=()=>{ if(st.page>1){st.page--;render();} };
-  const bNext=pg.querySelector('[data-pgnext]'); if(bNext) bNext.onclick=()=>{ if(st.page<pages){st.page++;render();} };
-  pg.querySelectorAll('[data-pg]').forEach(b=>b.onclick=()=>{ st.page=+b.dataset.pg; render(); });
-  const bPer=pg.querySelector('[data-per]'); if(bPer) bPer.onchange=e=>{ st.per=+e.target.value; st.page=1; render(); };
+/* Verola pagination via shared helpers (00_utils.js): vPaginationHTML + vPaginateBind */
+function vBindPaginate(pg, st, render){
+  pg.innerHTML = vPaginationHTML(st.total, st.page, st.per);
+  vPaginateBind(pg, (a,b)=>{
+    const pages=Math.max(1, Math.ceil(st.total/st.per));
+    if(a==='prev'){ if(st.page>1){ st.page--; render(); } }
+    else if(a==='next'){ if(st.page<pages){ st.page++; render(); } }
+    else if(a==='per'){ st.per=b; st.page=1; render(); }
+    else { st.page=a; render(); }
+  });
 }
-const V_TH='px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 whitespace-nowrap';
+const V_TH='px-5 py-4 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 whitespace-nowrap';
 
 App.routes['#/attendance'] = async (el, params)=>{
   const cid=uid('att');
   const tab=(params&&params.tab)||'log';
   const canEdit=perm('attendance','edit');
-  el.innerHTML=vCrumb(I18N.t('c4.nav.attendance'))+vTabs(tab)+`<div id="${cid}-body"></div>`;
+  el.innerHTML=vTabs(tab)+`<div id="${cid}-body"></div>`;
   const body=document.getElementById(cid+'-body');
 
   if(tab==='map'){
@@ -351,26 +337,26 @@ App.routes['#/attendance'] = async (el, params)=>{
     body.innerHTML=`
     <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.04)] overflow-hidden anim-fadeUp">
       <div id="${cid}-tbl"></div>
-      <div id="${cid}-pg" class="flex flex-wrap items-center gap-2 px-4 py-3.5 border-t border-slate-100"></div>
+      <div id="${cid}-pg"></div>
     </div>`;
     const tbl=document.getElementById(cid+'-tbl'), pg=document.getElementById(cid+'-pg');
     function render(){
       const slice=rows.slice((st.page-1)*st.per, st.page*st.per);
-      tbl.innerHTML=`<div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="border-b border-slate-100">
+      tbl.innerHTML=`<div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="bg-[#fafbfc] border-b border-slate-100">
         ${[I18N.t('c4.common.employee'),I18N.t('c4.att.colPunch'),I18N.t('c4.att.colRequest'),I18N.t('c4.common.status')].map(h=>`<th class="${V_TH}">${h} <span class="text-slate-300">↕</span></th>`).join('')}
         <th class="${V_TH} text-right">Actions</th></tr></thead>
         <tbody class="divide-y divide-slate-50">${slice.length?slice.map(c=>`<tr class="hover:bg-slate-50/70 transition-colors">
-          <td class="px-4 py-3"><div class="flex items-center gap-2.5">${vAvatar(c.employeeName)}<span class="font-medium text-slate-700 whitespace-nowrap">${esc(c.employeeName)}</span></div></td>
-          <td class="px-4 py-3 text-slate-600 whitespace-nowrap tabular-nums">${esc(c.punchDate)} · ${c.punchType==='in'?I18N.t('c4.common.checkIn'):I18N.t('c4.common.checkOut')} ${esc(c.punchTime)}</td>
-          <td class="px-4 py-3"><span class="text-slate-500 text-[13px]">${esc(c.note)}</span></td>
-          <td class="px-4 py-3">${c.status==='pending'?vPill(I18N.t('c4.common.pending'),'amber','◷'):c.status==='approved'?vPill(I18N.t('c4.common.approved'),'emerald','✓'):vPill(I18N.t('c4.common.rejected'),'red','✕')}</td>
-          <td class="px-4 py-3 text-right">${c.status==='pending'&&canEdit?`<div class="flex gap-1.5 justify-end">
+          <td class="px-5 py-4"><div class="flex items-center gap-2.5">${vAvatar(c.employeeName)}<span class="font-medium text-slate-700 whitespace-nowrap">${esc(c.employeeName)}</span></div></td>
+          <td class="px-5 py-4 text-slate-600 whitespace-nowrap tabular-nums">${esc(c.punchDate)} · ${c.punchType==='in'?I18N.t('c4.common.checkIn'):I18N.t('c4.common.checkOut')} ${esc(c.punchTime)}</td>
+          <td class="px-5 py-4"><span class="text-slate-500 text-[13px]">${esc(c.note)}</span></td>
+          <td class="px-5 py-4">${c.status==='pending'?vPill(I18N.t('c4.common.pending'),'amber','◷'):c.status==='approved'?vPill(I18N.t('c4.common.approved'),'emerald','✓'):vPill(I18N.t('c4.common.rejected'),'red','✕')}</td>
+          <td class="px-5 py-4 text-right">${c.status==='pending'&&canEdit?`<div class="flex gap-1.5 justify-end">
             <button class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 hover:bg-emerald-100 transition" data-ok="${c.id}">${I18N.t('c4.common.approve')}</button>
             <button class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-50 text-red-600 ring-1 ring-red-200 hover:bg-red-100 transition" data-no="${c.id}">${I18N.t('c4.common.reject')}</button></div>`
             :`<span class="text-xs text-slate-400">${esc(c.decidedBy||'')}</span>`}</td>
         </tr>`).join(''):`<tr><td colspan="5" class="px-4 py-14 text-center"><div class="text-slate-300 text-3xl mb-2">◌</div><div class="text-sm text-slate-400">${I18N.t('c4.att.emptyCorrections')}</div></td></tr>`}
         </tbody></table></div>`;
-      vPaginate(pg, st, render);
+      vBindPaginate(pg, st, render);
       tbl.querySelectorAll('[data-ok]').forEach(b=>b.onclick=async()=>{ await API.call('decideCorrection',b.dataset.ok,'approved'); toast(I18N.t('c4.att.correctionApproved'),'success'); App.route(); });
       tbl.querySelectorAll('[data-no]').forEach(b=>b.onclick=async()=>{ await API.call('decideCorrection',b.dataset.no,'rejected'); toast(I18N.t('c4.att.correctionRejected'),'success'); App.route(); });
     }
@@ -383,6 +369,14 @@ App.routes['#/attendance'] = async (el, params)=>{
   const sites=await API.call('listSites').catch(()=>[]);
   const dash=await API.call('getDashboard').catch(()=>({}));
   const k=dash.kpis||dash||{};
+  /* real trend for Present: last-7-day avg vs prior-7-day avg (same as dashboard) */
+  let presentTrend=null;
+  try{
+    const tv=(dash.punchesTrend||[]).slice(-14).map(p=>Number(p.present)||0);
+    const avg=a=>a.length?a.reduce((s,v)=>s+v,0)/a.length:0;
+    const prev=avg(tv.slice(0,Math.max(0,tv.length-7))), cur=avg(tv.slice(Math.max(0,tv.length-7)));
+    if(prev>0 && isFinite(cur)) presentTrend={pct:(cur-prev)/Math.abs(prev)*100, label:'vs last week'};
+  }catch(e){}
   const icoP=App.ICONS&&App.ICONS.punch?App.ICONS.punch:'';
   const icoE=App.ICONS&&App.ICONS.employees?App.ICONS.employees:'';
   const icoS=App.ICONS&&App.ICONS.shifts?App.ICONS.shifts:'';
@@ -400,7 +394,7 @@ App.routes['#/attendance'] = async (el, params)=>{
     </div>
   </div>
   <div class="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-5 anim-fadeUp">
-    ${vKpi(I18N.t('c4.dash.kpiPresent'), fmtNum(k.presentToday||0), I18N.t('c4.dash.kpiPresentSub'), icoP)}
+    ${vKpi(I18N.t('c4.dash.kpiPresent'), fmtNum(k.presentToday||0), I18N.t('c4.dash.kpiPresentSub'), icoP, presentTrend)}
     ${vKpi(I18N.t('c4.dash.kpiAbsent'), fmtNum(k.absentToday||0), I18N.t('c4.dash.kpiAbsentSub'), icoE)}
     ${vKpi(I18N.t('c4.dash.kpiLate'), fmtNum(k.lateToday||0), I18N.t('c4.dash.kpiLateSub'), icoS)}
     ${vKpi(I18N.t('c4.dash.kpiOoz'), fmtNum(k.outOfZoneToday||0), I18N.t('c4.dash.kpiOozSub'), icoL)}
@@ -423,7 +417,7 @@ App.routes['#/attendance'] = async (el, params)=>{
       <button class="${V_BLACK}" id="${cid}-go">${I18N.t('c4.common.apply')}</button>
     </div>
     <div id="${cid}-rows"></div>
-    <div id="${cid}-pg" class="flex flex-wrap items-center gap-2 px-4 py-3.5 border-t border-slate-100"></div>
+    <div id="${cid}-pg"></div>
   </div>`;
 
   const rowsEl=document.getElementById(cid+'-rows');
@@ -441,25 +435,25 @@ App.routes['#/attendance'] = async (el, params)=>{
     const rows=filtered();
     st.total=rows.length;
     const slice=rows.slice((st.page-1)*st.per, st.page*st.per);
-    rowsEl.innerHTML=`<div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="border-b border-slate-100">
+    rowsEl.innerHTML=`<div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="bg-[#fafbfc] border-b border-slate-100">
       ${[I18N.t('c4.common.date'),I18N.t('c4.common.employee'),I18N.t('c4.att.colType'),I18N.t('c4.att.colTime'),I18N.t('c4.common.site'),I18N.t('c4.att.colDistance'),I18N.t('c4.att.colZone'),I18N.t('c4.att.colSource')].map((h,i)=>`<th class="${V_TH} ${i===5?'text-right':''}">${h} <span class="text-slate-300">↕</span></th>`).join('')}
       <th class="${V_TH} text-right">Actions</th></tr></thead>
       <tbody class="divide-y divide-slate-50">${slice.length?slice.map(p=>`<tr class="hover:bg-slate-50/70 transition-colors">
-        <td class="px-4 py-3 tabular-nums text-slate-600 whitespace-nowrap">${fmtDate(p.date)}</td>
-        <td class="px-4 py-3"><div class="flex items-center gap-2.5">${vAvatar(p.employeeName)}<div><div class="font-medium text-slate-700 whitespace-nowrap">${esc(p.employeeName)}</div><div class="text-[11px] text-slate-400">${esc(p.employeeCode||'')}</div></div></div></td>
-        <td class="px-4 py-3">${p.type==='in'?vPill(I18N.t('c4.common.checkIn'),'emerald','✓'):vPill(I18N.t('c4.common.checkOut'),'slate','◷')}</td>
-        <td class="px-4 py-3 tabular-nums font-semibold text-slate-700 whitespace-nowrap">${esc(p.time)}</td>
-        <td class="px-4 py-3 text-slate-600 whitespace-nowrap">${esc(p.siteName||'—')}</td>
-        <td class="px-4 py-3 text-right tabular-nums text-slate-600">${p.distanceM!=null?fmtNum(p.distanceM)+' m':'<span class="text-slate-300">—</span>'}</td>
-        <td class="px-4 py-3">${p.outOfZone?vPill(I18N.t('c4.common.outOfZone'),'red','!'):vPill(I18N.t('c4.common.inZone'),'teal','✓')}</td>
-        <td class="px-4 py-3 text-xs text-slate-400">${esc(p.source||'')}</td>
-        <td class="px-4 py-3 text-right"><div class="flex gap-1.5 justify-end">
+        <td class="px-5 py-4 tabular-nums text-slate-600 whitespace-nowrap">${fmtDate(p.date)}</td>
+        <td class="px-5 py-4"><div class="flex items-center gap-2.5">${vAvatar(p.employeeName)}<div><div class="font-medium text-slate-700 whitespace-nowrap">${esc(p.employeeName)}</div><div class="text-[11px] text-slate-400">${esc(p.employeeCode||'')}</div></div></div></td>
+        <td class="px-5 py-4">${p.type==='in'?vPill(I18N.t('c4.common.checkIn'),'emerald','✓'):vPill(I18N.t('c4.common.checkOut'),'slate','◷')}</td>
+        <td class="px-5 py-4 tabular-nums font-semibold text-slate-700 whitespace-nowrap">${esc(p.time)}</td>
+        <td class="px-5 py-4 text-slate-600 whitespace-nowrap">${esc(p.siteName||'—')}</td>
+        <td class="px-5 py-4 text-right tabular-nums text-slate-600">${p.distanceM!=null?fmtNum(p.distanceM)+' m':'<span class="text-slate-300">—</span>'}</td>
+        <td class="px-5 py-4">${p.outOfZone?vPill(I18N.t('c4.common.outOfZone'),'red','!'):vPill(I18N.t('c4.common.inZone'),'teal','✓')}</td>
+        <td class="px-5 py-4 text-xs text-slate-400">${esc(p.source||'')}</td>
+        <td class="px-5 py-4 text-right"><div class="flex gap-1.5 justify-end">
           ${p.selfie?`<button class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white border border-slate-200 text-slate-500 hover:border-slate-300 transition" data-img="${p.id}">${I18N.t('c4.att.selfieBtn')}</button>`:''}
           ${canEdit?`<button class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white border border-slate-200 text-slate-500 hover:border-slate-300 transition" data-corr="${p.id}">${I18N.t('c4.att.requestFix')}</button>
           <button class="w-8 h-8 rounded-lg border border-slate-200 text-slate-400 hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition font-bold" data-del="${p.id}">✕</button>`:''}</div></td>
       </tr>`).join(''):`<tr><td colspan="9" class="px-4 py-14 text-center"><div class="text-slate-300 text-3xl mb-2">◌</div><div class="text-sm text-slate-400">${I18N.t('c4.att.emptyLog')}</div></td></tr>`}
       </tbody></table></div>`;
-    vPaginate(pgEl, st, renderTable);
+    vBindPaginate(pgEl, st, renderTable);
     rowsEl.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{
       if(!await confirmDlg(I18N.t('c4.att.delPunchTitle'),I18N.t('c4.emp.cannotUndo'),I18N.t('c4.common.delete'))) return;
       await API.call('deletePunch',b.dataset.del); toast(I18N.t('c4.att.punchDeleted'),'success'); load();
@@ -542,10 +536,8 @@ App.routes['#/attendance'] = async (el, params)=>{
 App.nav.push({group:'PEOPLE', path:'#/leave', label:I18N.t('c4.nav.leave'), labelKey:'c4.nav.leave', icon:'leave', perm:'leave'});
 
 /* ---------- Verola bits (shared style with payroll) ---------- */
-function vAvatar(name){
-  const init=(String(name||'?').trim().split(/\s+/).map(w=>w[0]).join('')||'?').slice(0,2).toUpperCase();
-  return `<span class="w-8 h-8 rounded-full bg-slate-200 text-slate-500 text-[11px] font-bold inline-flex items-center justify-center shrink-0">${esc(init)}</span>`;
-}
+function vAvatar(name){ return avatar(name); }
+
 function vCrumb(page){
   return `<div class="flex items-center gap-2 text-[13px] text-slate-400 mb-4 anim-fadeUp">
     <span class="text-base">⌂</span><a href="#/dashboard" class="hover:text-slate-600">${I18N.t('c4.nav.dashboard')}</a><span>›</span><span class="text-slate-700 font-semibold">${page}</span></div>`;
@@ -560,6 +552,7 @@ function vKpi(label, value, sub, ico){
     <div class="flex items-center gap-2.5 mb-4">
       <span class="w-9 h-9 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center shrink-0">${ico}</span>
       <span class="text-[13px] text-slate-500 font-medium">${label}</span>
+      <span class="ml-auto w-7 h-7 rounded-lg bg-slate-50 border border-slate-100 text-slate-400 text-sm font-bold flex items-center justify-center shrink-0 select-none">···</span>
     </div>
     <div class="text-[26px] font-bold text-slate-900 tabular-nums tracking-tight">${value}</div>
     ${sub?`<div class="text-xs text-slate-400 mt-1.5">${sub}</div>`:''}
@@ -595,7 +588,7 @@ App.routes['#/leave'] = async (el, params)=>{
   const emps=await API.call('listEmployees').catch(()=>[]);
   const types=await API.call('listLeaveTypes').catch(()=>[]);
 
-  el.innerHTML=vCrumb(I18N.t('c4.nav.leave'))+`
+  el.innerHTML=`
   <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
     ${vTabs(tab)}
     <div class="flex gap-2 flex-wrap">
@@ -797,10 +790,8 @@ App.routes['#/leave'] = async (el, params)=>{
 App.nav.push({group:'PEOPLE', path:'#/overtime', label:I18N.t('c4.nav.overtime'), labelKey:'c4.nav.overtime', icon:'overtime', perm:'overtime'});
 
 /* ---------- Verola bits (shared style with payroll) ---------- */
-function vAvatar(name){
-  const init=(String(name||'?').trim().split(/\s+/).map(w=>w[0]).join('')||'?').slice(0,2).toUpperCase();
-  return `<span class="w-8 h-8 rounded-full bg-slate-200 text-slate-500 text-[11px] font-bold inline-flex items-center justify-center shrink-0">${esc(init)}</span>`;
-}
+function vAvatar(name){ return avatar(name); }
+
 function vCrumb(page){
   return `<div class="flex items-center gap-2 text-[13px] text-slate-400 mb-4 anim-fadeUp">
     <span class="text-base">⌂</span><a href="#/dashboard" class="hover:text-slate-600">${I18N.t('c4.nav.dashboard')}</a><span>›</span><span class="text-slate-700 font-semibold">${page}</span></div>`;
@@ -811,6 +802,7 @@ function vKpi(label, value, sub, ico){
     <div class="flex items-center gap-2.5 mb-4">
       <span class="w-9 h-9 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center shrink-0">${ico}</span>
       <span class="text-[13px] text-slate-500 font-medium">${label}</span>
+      <span class="ml-auto w-7 h-7 rounded-lg bg-slate-50 border border-slate-100 text-slate-400 text-sm font-bold flex items-center justify-center shrink-0 select-none">···</span>
     </div>
     <div class="text-[26px] font-bold text-slate-900 tabular-nums tracking-tight">${value}</div>
     ${sub?`<div class="text-xs text-slate-400 mt-1.5">${sub}</div>`:''}
@@ -844,12 +836,13 @@ App.routes['#/overtime'] = async (el)=>{
   const canEdit=perm('overtime','edit');
   const emps=await API.call('listEmployees').catch(()=>[]);
 
-  el.innerHTML=vCrumb(I18N.t('c4.nav.overtime'))+`
+  el.innerHTML=`
   <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
     <div class="inline-flex items-center gap-1 bg-slate-100 rounded-xl p-1" id="${cid}-range">
       <button data-range="all" class="px-4 py-2 rounded-lg text-[13px] font-semibold bg-white shadow-sm text-slate-800 ring-1 ring-slate-200">${I18N.t('c4.ot.allStatuses')}</button>
       <button data-range="pending" class="px-4 py-2 rounded-lg text-[13px] font-semibold text-slate-400 hover:text-slate-600">${I18N.t('c4.common.pending')}</button>
       <button data-range="approved" class="px-4 py-2 rounded-lg text-[13px] font-semibold text-slate-400 hover:text-slate-600">${I18N.t('c4.common.approved')}</button>
+      <button data-range="rejected" class="px-4 py-2 rounded-lg text-[13px] font-semibold text-slate-400 hover:text-slate-600">${I18N.t('c4.common.rejected')}</button>
     </div>
     <button class="${V_BLACK}" id="${cid}-add">+ ${I18N.t('c4.ot.logOvertime')}</button>
   </div>
@@ -879,12 +872,6 @@ App.routes['#/overtime'] = async (el)=>{
             <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">⌕</span>
             <input id="${cid}-q" placeholder="Search..." value="${esc(st.q)}" class="w-full bg-white border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400 focus:outline-none">
           </div>
-          <select id="${cid}-f" class="bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 focus:outline-none">
-            <option value="">▽ ${I18N.t('c4.ot.allStatuses')}</option>
-            <option value="pending" ${st.status==='pending'?'selected':''}>${I18N.t('c4.common.pending')}</option>
-            <option value="approved" ${st.status==='approved'?'selected':''}>${I18N.t('c4.common.approved')}</option>
-            <option value="rejected" ${st.status==='rejected'?'selected':''}>${I18N.t('c4.common.rejected')}</option>
-          </select>
         </div>
         <div id="${cid}-tbl"></div>
         <div id="${cid}-pg" class="flex flex-wrap items-center gap-2 px-4 py-3.5 border-t border-slate-100"></div>
@@ -923,7 +910,6 @@ App.routes['#/overtime'] = async (el)=>{
     }
     const qIn=document.getElementById(cid+'-q');
     qIn.oninput=debounce(()=>{ st.q=qIn.value; st.page=1; render(); },300);
-    document.getElementById(cid+'-f').onchange=e=>{ st.status=e.target.value; st.page=1; load(); };
     render();
   }
   el.querySelectorAll('#'+cid+'-range [data-range]').forEach(b=>b.onclick=()=>{

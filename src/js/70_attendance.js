@@ -6,56 +6,51 @@
 App.nav.push({group:'MAIN', path:'#/attendance', label:I18N.t('c4.nav.attendance'), labelKey:'c4.nav.attendance', icon:'attendance', perm:'attendance'});
 
 /* ---------- Verola bits (shared style with payroll) ---------- */
-function vAvatar(name){
-  const init=(String(name||'?').trim().split(/\s+/).map(w=>w[0]).join('')||'?').slice(0,2).toUpperCase();
-  return `<span class="w-8 h-8 rounded-full bg-slate-200 text-slate-500 text-[11px] font-bold inline-flex items-center justify-center shrink-0">${esc(init)}</span>`;
-}
-function vCrumb(page){
-  return `<div class="flex items-center gap-2 text-[13px] text-slate-400 mb-4 anim-fadeUp">
-    <span class="text-base">⌂</span><a href="#/dashboard" class="hover:text-slate-600">${I18N.t('c4.nav.dashboard')}</a><span>›</span><span class="text-slate-700 font-semibold">${page}</span></div>`;
-}
+function vAvatar(name){ return avatar(name); }
+
 function vTabs(tab){
   return `<div class="flex gap-2 mb-5 flex-wrap">${[['log',I18N.t('c4.att.tabLog')],['map',I18N.t('c4.att.tabMap')],['corrections',I18N.t('c4.att.tabCorrections')]].map(([k,l])=>
     `<a href="#/attendance${k==='log'?'':'?tab='+k}" class="px-4 py-2 rounded-xl text-sm font-semibold transition ${tab===k?'bg-slate-900 text-white shadow':'bg-white text-slate-500 border border-slate-200 hover:border-slate-300'}">${l}</a>`).join('')}</div>`;
 }
 const V_BLACK='px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold shadow active:scale-[.98] transition';
-function vKpi(label, value, sub, ico){
+function vKpi(label, value, sub, ico, trend){
+  /* trend: {pct:number, label:string} or null — Verola pill badge like the reference */
+  const up = trend && trend.pct >= 0;
+  const tr = (trend && isFinite(trend.pct))
+    ? `<div class="flex items-center gap-1.5 mt-1.5"><span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold ${up?'bg-emerald-50 text-emerald-600':'bg-red-50 text-red-600'}">${up?'↗':'↘'} ${Math.abs(trend.pct).toFixed(1)}%</span><span class="text-xs text-slate-400">${esc(trend.label||'vs last week')}</span></div>`
+    : (sub?`<div class="text-xs text-slate-400 mt-1.5">${sub}</div>`:'');
   return `<div class="bg-white rounded-2xl border border-slate-200/70 p-5 shadow-[0_1px_3px_rgba(15,23,42,.04)]">
     <div class="flex items-center gap-2.5 mb-4">
       <span class="w-9 h-9 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center shrink-0">${ico}</span>
       <span class="text-[13px] text-slate-500 font-medium">${label}</span>
+      <span class="ml-auto w-7 h-7 rounded-lg bg-slate-50 border border-slate-100 text-slate-400 text-sm font-bold flex items-center justify-center shrink-0 select-none">···</span>
     </div>
     <div class="text-[26px] font-bold text-slate-900 tabular-nums tracking-tight">${value}</div>
-    ${sub?`<div class="text-xs text-slate-400 mt-1.5">${sub}</div>`:''}
+    ${tr}
   </div>`;
 }
 function vPill(text, color, icon){
   const c={emerald:'bg-emerald-50 text-emerald-700 ring-emerald-200',amber:'bg-amber-50 text-amber-700 ring-amber-200',red:'bg-red-50 text-red-600 ring-red-200',slate:'bg-slate-100 text-slate-500 ring-slate-200',teal:'bg-teal-50 text-teal-700 ring-teal-200',blue:'bg-blue-50 text-blue-700 ring-blue-200'}[color]||'bg-slate-100 text-slate-500 ring-slate-200';
   return `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${c} ring-1 whitespace-nowrap">${icon?`<span class="text-[10px]">${icon}</span>`:''}${text}</span>`;
 }
-function vPaginate(pg, st, render){
-  const pages=Math.max(1,Math.ceil(st.total/st.per));
-  if(st.page>pages) st.page=pages;
-  const from=st.total?(st.page-1)*st.per+1:0, to=Math.min(st.total,st.page*st.per);
-  let nums=''; for(let p=1;p<=pages;p++){ if(p===1||p===pages||Math.abs(p-st.page)<=1) nums+=`<button data-pg="${p}" class="min-w-[32px] h-8 px-2 rounded-lg text-[13px] font-semibold ${p===st.page?'bg-slate-900 text-white':'text-slate-500 hover:bg-slate-100'}">${p}</button>`; else if(!nums.endsWith('…')) nums+='<span class="text-slate-300">…</span>'; }
-  pg.innerHTML=`
-    <button data-pgprev class="w-8 h-8 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40" ${st.page<=1?'disabled':''}>‹</button>${nums}
-    <button data-pgnext class="w-8 h-8 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40" ${st.page>=pages?'disabled':''}>›</button>
-    <span class="ml-auto text-xs text-slate-400">Showing ${from} to ${to} of ${st.total} entries</span>
-    <select data-per class="bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs font-medium text-slate-600">${[8,16,50].map(n=>`<option ${n===st.per?'selected':''}>${n}</option>`).join('')}</select>`;
-  if(!pg) return;
-  const bPrev=pg.querySelector('[data-pgprev]'); if(bPrev) bPrev.onclick=()=>{ if(st.page>1){st.page--;render();} };
-  const bNext=pg.querySelector('[data-pgnext]'); if(bNext) bNext.onclick=()=>{ if(st.page<pages){st.page++;render();} };
-  pg.querySelectorAll('[data-pg]').forEach(b=>b.onclick=()=>{ st.page=+b.dataset.pg; render(); });
-  const bPer=pg.querySelector('[data-per]'); if(bPer) bPer.onchange=e=>{ st.per=+e.target.value; st.page=1; render(); };
+/* Verola pagination via shared helpers (00_utils.js): vPaginationHTML + vPaginateBind */
+function vBindPaginate(pg, st, render){
+  pg.innerHTML = vPaginationHTML(st.total, st.page, st.per);
+  vPaginateBind(pg, (a,b)=>{
+    const pages=Math.max(1, Math.ceil(st.total/st.per));
+    if(a==='prev'){ if(st.page>1){ st.page--; render(); } }
+    else if(a==='next'){ if(st.page<pages){ st.page++; render(); } }
+    else if(a==='per'){ st.per=b; st.page=1; render(); }
+    else { st.page=a; render(); }
+  });
 }
-const V_TH='px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 whitespace-nowrap';
+const V_TH='px-5 py-4 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 whitespace-nowrap';
 
 App.routes['#/attendance'] = async (el, params)=>{
   const cid=uid('att');
   const tab=(params&&params.tab)||'log';
   const canEdit=perm('attendance','edit');
-  el.innerHTML=vCrumb(I18N.t('c4.nav.attendance'))+vTabs(tab)+`<div id="${cid}-body"></div>`;
+  el.innerHTML=vTabs(tab)+`<div id="${cid}-body"></div>`;
   const body=document.getElementById(cid+'-body');
 
   if(tab==='map'){
@@ -91,26 +86,26 @@ App.routes['#/attendance'] = async (el, params)=>{
     body.innerHTML=`
     <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.04)] overflow-hidden anim-fadeUp">
       <div id="${cid}-tbl"></div>
-      <div id="${cid}-pg" class="flex flex-wrap items-center gap-2 px-4 py-3.5 border-t border-slate-100"></div>
+      <div id="${cid}-pg"></div>
     </div>`;
     const tbl=document.getElementById(cid+'-tbl'), pg=document.getElementById(cid+'-pg');
     function render(){
       const slice=rows.slice((st.page-1)*st.per, st.page*st.per);
-      tbl.innerHTML=`<div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="border-b border-slate-100">
+      tbl.innerHTML=`<div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="bg-[#fafbfc] border-b border-slate-100">
         ${[I18N.t('c4.common.employee'),I18N.t('c4.att.colPunch'),I18N.t('c4.att.colRequest'),I18N.t('c4.common.status')].map(h=>`<th class="${V_TH}">${h} <span class="text-slate-300">↕</span></th>`).join('')}
         <th class="${V_TH} text-right">Actions</th></tr></thead>
         <tbody class="divide-y divide-slate-50">${slice.length?slice.map(c=>`<tr class="hover:bg-slate-50/70 transition-colors">
-          <td class="px-4 py-3"><div class="flex items-center gap-2.5">${vAvatar(c.employeeName)}<span class="font-medium text-slate-700 whitespace-nowrap">${esc(c.employeeName)}</span></div></td>
-          <td class="px-4 py-3 text-slate-600 whitespace-nowrap tabular-nums">${esc(c.punchDate)} · ${c.punchType==='in'?I18N.t('c4.common.checkIn'):I18N.t('c4.common.checkOut')} ${esc(c.punchTime)}</td>
-          <td class="px-4 py-3"><span class="text-slate-500 text-[13px]">${esc(c.note)}</span></td>
-          <td class="px-4 py-3">${c.status==='pending'?vPill(I18N.t('c4.common.pending'),'amber','◷'):c.status==='approved'?vPill(I18N.t('c4.common.approved'),'emerald','✓'):vPill(I18N.t('c4.common.rejected'),'red','✕')}</td>
-          <td class="px-4 py-3 text-right">${c.status==='pending'&&canEdit?`<div class="flex gap-1.5 justify-end">
+          <td class="px-5 py-4"><div class="flex items-center gap-2.5">${vAvatar(c.employeeName)}<span class="font-medium text-slate-700 whitespace-nowrap">${esc(c.employeeName)}</span></div></td>
+          <td class="px-5 py-4 text-slate-600 whitespace-nowrap tabular-nums">${esc(c.punchDate)} · ${c.punchType==='in'?I18N.t('c4.common.checkIn'):I18N.t('c4.common.checkOut')} ${esc(c.punchTime)}</td>
+          <td class="px-5 py-4"><span class="text-slate-500 text-[13px]">${esc(c.note)}</span></td>
+          <td class="px-5 py-4">${c.status==='pending'?vPill(I18N.t('c4.common.pending'),'amber','◷'):c.status==='approved'?vPill(I18N.t('c4.common.approved'),'emerald','✓'):vPill(I18N.t('c4.common.rejected'),'red','✕')}</td>
+          <td class="px-5 py-4 text-right">${c.status==='pending'&&canEdit?`<div class="flex gap-1.5 justify-end">
             <button class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 hover:bg-emerald-100 transition" data-ok="${c.id}">${I18N.t('c4.common.approve')}</button>
             <button class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-50 text-red-600 ring-1 ring-red-200 hover:bg-red-100 transition" data-no="${c.id}">${I18N.t('c4.common.reject')}</button></div>`
             :`<span class="text-xs text-slate-400">${esc(c.decidedBy||'')}</span>`}</td>
         </tr>`).join(''):`<tr><td colspan="5" class="px-4 py-14 text-center"><div class="text-slate-300 text-3xl mb-2">◌</div><div class="text-sm text-slate-400">${I18N.t('c4.att.emptyCorrections')}</div></td></tr>`}
         </tbody></table></div>`;
-      vPaginate(pg, st, render);
+      vBindPaginate(pg, st, render);
       tbl.querySelectorAll('[data-ok]').forEach(b=>b.onclick=async()=>{ await API.call('decideCorrection',b.dataset.ok,'approved'); toast(I18N.t('c4.att.correctionApproved'),'success'); App.route(); });
       tbl.querySelectorAll('[data-no]').forEach(b=>b.onclick=async()=>{ await API.call('decideCorrection',b.dataset.no,'rejected'); toast(I18N.t('c4.att.correctionRejected'),'success'); App.route(); });
     }
@@ -123,6 +118,14 @@ App.routes['#/attendance'] = async (el, params)=>{
   const sites=await API.call('listSites').catch(()=>[]);
   const dash=await API.call('getDashboard').catch(()=>({}));
   const k=dash.kpis||dash||{};
+  /* real trend for Present: last-7-day avg vs prior-7-day avg (same as dashboard) */
+  let presentTrend=null;
+  try{
+    const tv=(dash.punchesTrend||[]).slice(-14).map(p=>Number(p.present)||0);
+    const avg=a=>a.length?a.reduce((s,v)=>s+v,0)/a.length:0;
+    const prev=avg(tv.slice(0,Math.max(0,tv.length-7))), cur=avg(tv.slice(Math.max(0,tv.length-7)));
+    if(prev>0 && isFinite(cur)) presentTrend={pct:(cur-prev)/Math.abs(prev)*100, label:'vs last week'};
+  }catch(e){}
   const icoP=App.ICONS&&App.ICONS.punch?App.ICONS.punch:'';
   const icoE=App.ICONS&&App.ICONS.employees?App.ICONS.employees:'';
   const icoS=App.ICONS&&App.ICONS.shifts?App.ICONS.shifts:'';
@@ -140,7 +143,7 @@ App.routes['#/attendance'] = async (el, params)=>{
     </div>
   </div>
   <div class="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-5 anim-fadeUp">
-    ${vKpi(I18N.t('c4.dash.kpiPresent'), fmtNum(k.presentToday||0), I18N.t('c4.dash.kpiPresentSub'), icoP)}
+    ${vKpi(I18N.t('c4.dash.kpiPresent'), fmtNum(k.presentToday||0), I18N.t('c4.dash.kpiPresentSub'), icoP, presentTrend)}
     ${vKpi(I18N.t('c4.dash.kpiAbsent'), fmtNum(k.absentToday||0), I18N.t('c4.dash.kpiAbsentSub'), icoE)}
     ${vKpi(I18N.t('c4.dash.kpiLate'), fmtNum(k.lateToday||0), I18N.t('c4.dash.kpiLateSub'), icoS)}
     ${vKpi(I18N.t('c4.dash.kpiOoz'), fmtNum(k.outOfZoneToday||0), I18N.t('c4.dash.kpiOozSub'), icoL)}
@@ -163,7 +166,7 @@ App.routes['#/attendance'] = async (el, params)=>{
       <button class="${V_BLACK}" id="${cid}-go">${I18N.t('c4.common.apply')}</button>
     </div>
     <div id="${cid}-rows"></div>
-    <div id="${cid}-pg" class="flex flex-wrap items-center gap-2 px-4 py-3.5 border-t border-slate-100"></div>
+    <div id="${cid}-pg"></div>
   </div>`;
 
   const rowsEl=document.getElementById(cid+'-rows');
@@ -181,25 +184,25 @@ App.routes['#/attendance'] = async (el, params)=>{
     const rows=filtered();
     st.total=rows.length;
     const slice=rows.slice((st.page-1)*st.per, st.page*st.per);
-    rowsEl.innerHTML=`<div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="border-b border-slate-100">
+    rowsEl.innerHTML=`<div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="bg-[#fafbfc] border-b border-slate-100">
       ${[I18N.t('c4.common.date'),I18N.t('c4.common.employee'),I18N.t('c4.att.colType'),I18N.t('c4.att.colTime'),I18N.t('c4.common.site'),I18N.t('c4.att.colDistance'),I18N.t('c4.att.colZone'),I18N.t('c4.att.colSource')].map((h,i)=>`<th class="${V_TH} ${i===5?'text-right':''}">${h} <span class="text-slate-300">↕</span></th>`).join('')}
       <th class="${V_TH} text-right">Actions</th></tr></thead>
       <tbody class="divide-y divide-slate-50">${slice.length?slice.map(p=>`<tr class="hover:bg-slate-50/70 transition-colors">
-        <td class="px-4 py-3 tabular-nums text-slate-600 whitespace-nowrap">${fmtDate(p.date)}</td>
-        <td class="px-4 py-3"><div class="flex items-center gap-2.5">${vAvatar(p.employeeName)}<div><div class="font-medium text-slate-700 whitespace-nowrap">${esc(p.employeeName)}</div><div class="text-[11px] text-slate-400">${esc(p.employeeCode||'')}</div></div></div></td>
-        <td class="px-4 py-3">${p.type==='in'?vPill(I18N.t('c4.common.checkIn'),'emerald','✓'):vPill(I18N.t('c4.common.checkOut'),'slate','◷')}</td>
-        <td class="px-4 py-3 tabular-nums font-semibold text-slate-700 whitespace-nowrap">${esc(p.time)}</td>
-        <td class="px-4 py-3 text-slate-600 whitespace-nowrap">${esc(p.siteName||'—')}</td>
-        <td class="px-4 py-3 text-right tabular-nums text-slate-600">${p.distanceM!=null?fmtNum(p.distanceM)+' m':'<span class="text-slate-300">—</span>'}</td>
-        <td class="px-4 py-3">${p.outOfZone?vPill(I18N.t('c4.common.outOfZone'),'red','!'):vPill(I18N.t('c4.common.inZone'),'teal','✓')}</td>
-        <td class="px-4 py-3 text-xs text-slate-400">${esc(p.source||'')}</td>
-        <td class="px-4 py-3 text-right"><div class="flex gap-1.5 justify-end">
+        <td class="px-5 py-4 tabular-nums text-slate-600 whitespace-nowrap">${fmtDate(p.date)}</td>
+        <td class="px-5 py-4"><div class="flex items-center gap-2.5">${vAvatar(p.employeeName)}<div><div class="font-medium text-slate-700 whitespace-nowrap">${esc(p.employeeName)}</div><div class="text-[11px] text-slate-400">${esc(p.employeeCode||'')}</div></div></div></td>
+        <td class="px-5 py-4">${p.type==='in'?vPill(I18N.t('c4.common.checkIn'),'emerald','✓'):vPill(I18N.t('c4.common.checkOut'),'slate','◷')}</td>
+        <td class="px-5 py-4 tabular-nums font-semibold text-slate-700 whitespace-nowrap">${esc(p.time)}</td>
+        <td class="px-5 py-4 text-slate-600 whitespace-nowrap">${esc(p.siteName||'—')}</td>
+        <td class="px-5 py-4 text-right tabular-nums text-slate-600">${p.distanceM!=null?fmtNum(p.distanceM)+' m':'<span class="text-slate-300">—</span>'}</td>
+        <td class="px-5 py-4">${p.outOfZone?vPill(I18N.t('c4.common.outOfZone'),'red','!'):vPill(I18N.t('c4.common.inZone'),'teal','✓')}</td>
+        <td class="px-5 py-4 text-xs text-slate-400">${esc(p.source||'')}</td>
+        <td class="px-5 py-4 text-right"><div class="flex gap-1.5 justify-end">
           ${p.selfie?`<button class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white border border-slate-200 text-slate-500 hover:border-slate-300 transition" data-img="${p.id}">${I18N.t('c4.att.selfieBtn')}</button>`:''}
           ${canEdit?`<button class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white border border-slate-200 text-slate-500 hover:border-slate-300 transition" data-corr="${p.id}">${I18N.t('c4.att.requestFix')}</button>
           <button class="w-8 h-8 rounded-lg border border-slate-200 text-slate-400 hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition font-bold" data-del="${p.id}">✕</button>`:''}</div></td>
       </tr>`).join(''):`<tr><td colspan="9" class="px-4 py-14 text-center"><div class="text-slate-300 text-3xl mb-2">◌</div><div class="text-sm text-slate-400">${I18N.t('c4.att.emptyLog')}</div></td></tr>`}
       </tbody></table></div>`;
-    vPaginate(pgEl, st, renderTable);
+    vBindPaginate(pgEl, st, renderTable);
     rowsEl.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{
       if(!await confirmDlg(I18N.t('c4.att.delPunchTitle'),I18N.t('c4.emp.cannotUndo'),I18N.t('c4.common.delete'))) return;
       await API.call('deletePunch',b.dataset.del); toast(I18N.t('c4.att.punchDeleted'),'success'); load();

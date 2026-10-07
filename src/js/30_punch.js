@@ -7,11 +7,9 @@
 App.nav.push({group:'MAIN', path:'#/punch', label:I18N.t('c4.nav.punch'), labelKey:'c4.nav.punch', icon:'punch', perm:'punch'});
 
 /* Verola tokens (local) */
-const vBtnB='px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold shadow active:scale-[.98] transition';
 const vCard='bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.04)] p-6 anim-fadeUp';
 function vHead(title, actions){
-  return `<div class="flex items-center gap-2 text-[13px] text-slate-400 mb-4 anim-fadeUp"><span class="text-base">⌂</span><a href="#/dashboard" class="hover:text-slate-600">${I18N.t('c4.nav.dashboard')}</a><span>›</span><span class="text-slate-700 font-semibold">${title}</span></div>
-  <div class="flex flex-wrap items-center justify-between gap-3 mb-5 anim-fadeUp"><div><h1 class="font-display text-[26px] font-bold text-slate-800 tracking-tight">${title}</h1><p class="text-sm text-slate-400 mt-1">${I18N.t('c4.punch.sub')}</p></div><div class="flex gap-2 flex-wrap items-center">${actions||''}</div></div>`;
+  return `<div class="flex flex-wrap items-center justify-between gap-3 mb-5 anim-fadeUp"><div><h1 class="font-display text-[26px] font-bold text-slate-900 tracking-tight">${title}</h1><p class="text-sm text-slate-400 mt-1">${I18N.t('c4.punch.sub')}</p></div><div class="flex gap-2 flex-wrap items-center">${actions||''}</div></div>`;
 }
 
 const QKEY='ams_queue', LKEY='ams_lastpunch';
@@ -96,8 +94,8 @@ App.routes['#/punch'] = async (el)=>{
         <div class="text-sm"><div class="font-semibold text-emerald-600">${I18N.t('c4.punch.selfieCaptured')}</div><div class="text-slate-400 text-xs">${I18N.t('c4.punch.selfieCompressed')}</div></div>
       </div>
       <div class="grid grid-cols-2 gap-3">
-        <button id="${cid}-in" class="py-4 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-lg shadow active:scale-[.98] transition disabled:opacity-50">${I18N.t('c4.punch.checkInBtn')}</button>
-        <button id="${cid}-out" class="py-4 rounded-2xl bg-white border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-slate-700 font-bold text-lg shadow-sm active:scale-[.98] transition disabled:opacity-50">${I18N.t('c4.punch.checkOutBtn')}</button>
+        <button id="${cid}-in" class="py-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-lg shadow active:scale-[.98] transition disabled:opacity-50">${I18N.t('c4.punch.checkInBtn')}</button>
+        <button id="${cid}-out" class="py-4 rounded-xl bg-white border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-slate-700 font-bold text-lg shadow-sm active:scale-[.98] transition disabled:opacity-50">${I18N.t('c4.punch.checkOutBtn')}</button>
       </div>
       <div id="${cid}-msg" class="mt-4"></div>
     </div>

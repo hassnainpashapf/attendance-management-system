@@ -27,10 +27,9 @@ App.routes['#/settings'] = async (el)=>{
   const V_ICO_BELL='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M10.3 21a2 2 0 003.4 0"/></svg>';
   const V_ICO_LOG='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M8 6h13M8 12h13M8 18h13"/><circle cx="4" cy="6" r="1.2" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="4" cy="18" r="1.2" fill="currentColor" stroke="none"/></svg>';
   const V_ICO_SHIELD='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M12 3l7 3v5c0 5-3.5 8-7 9-3.5-1-7-4-7-9V6z"/><path d="M9.5 12l2 2 3.5-4"/></svg>';
+  const V_ICO_ZKT='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><rect x="5" y="3" width="14" height="18" rx="2.5"/><circle cx="12" cy="11" r="3.2"/><path d="M12 14.2v2.3M9.5 18.5h5"/></svg>';
+  const V_ICO_KEY='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><circle cx="8" cy="15" r="4.5"/><path d="M11.5 11.5L20 3m-3 3l3 3m-6 0l3 3"/></svg>';
   el.innerHTML=`
-  <div class="flex items-center gap-2 text-[13px] text-slate-400 mb-4 anim-fadeUp">
-    <span class="text-base">⌂</span><a href="#/dashboard" class="hover:text-slate-600">Dashboard</a><span>›</span><span class="text-slate-700 font-semibold">Settings</span>
-  </div>
   <div class="mb-6 anim-fadeUp"><h1 class="text-[26px] font-bold text-slate-900 tracking-tight">Settings</h1>
   <p class="text-sm text-slate-400 mt-1">Company profile, notifications and access control</p></div>
   <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
@@ -44,13 +43,12 @@ App.routes['#/settings'] = async (el)=>{
         <div id="${cid}-smtp"></div>
       </div>
       <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.04)] p-6">
-        <h3 class="font-bold text-slate-800 mb-1">ZKTeco biometric device</h3>
-        <p class="text-xs text-slate-400 mb-5">Connect a ZKTeco fingerprint/face device. Punches from the device appear in attendance automatically.</p>
+        ${vHead(V_ICO_ZKT,'ZKTeco biometric device','Connect a ZKTeco fingerprint/face device. Punches from the device appear in attendance automatically.')}
         <div id="${cid}-zkt"></div>
       </div>
       <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.04)] p-6">
-        <h3 class="font-bold text-slate-800 mb-1">Sign-in options</h3>
-        <div class="flex items-start gap-3 mt-4">
+        ${vHead(V_ICO_KEY,'Sign-in options','')}
+        <div class="flex items-start gap-3 mt-1">
           <div class="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold shrink-0">G</div>
           <div class="text-sm"><div class="font-semibold text-slate-700">Sign in with Google</div>
           <div class="text-slate-400 text-xs mt-1">In production, admins can link their Google Workspace account for one-click sign-in. Enable it from the Apps Script project settings, then toggle it here.</div></div>
@@ -171,7 +169,7 @@ App.routes['#/settings'] = async (el)=>{
 
   const bb=document.getElementById(cid+'-backup');
   if(bb) bb.onclick=async()=>{
-    bb.disabled=true; bb.innerHTML='<span class="spinner" style="border-color:rgba(13,148,136,.3);border-top-color:#0d9488"></span>';
+    bb.disabled=true; bb.innerHTML='<span class="spinner" style="border-color:rgba(15,23,42,.2);border-top-color:#0f172a"></span>';
     try{
       const r=await API.call('backupNow');
       document.getElementById(cid+'-backupMsg').innerHTML=`<span class="text-emerald-600 font-medium">✓ Backup created:</span> <span class="text-slate-600">${esc(r.name)}</span>`;
@@ -199,12 +197,12 @@ App.routes['#/settings'] = async (el)=>{
         <th class="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400">Module</th>
         ${roles.map(r=>`<th class="px-3 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wider text-slate-400 capitalize">${esc(r)}</th>`).join('')}
       </tr></thead><tbody class="divide-y divide-slate-50">
-      ${MODULES.map(([mk,ml])=>`<tr class="hover:bg-teal-50/40">
+      ${MODULES.map(([mk,ml])=>`<tr class="hover:bg-slate-50/70">
         <td class="px-3 py-2.5 font-medium text-slate-700">${ml}</td>
         ${roles.map(r=>{ const p=(perms[r]||{})[mk]||{};
           return `<td class="px-3 py-2.5 text-center">
-            <label class="inline-flex items-center gap-1 text-[11px] text-slate-500 mr-2"><input type="checkbox" data-r="${r}" data-m="${mk}" data-a="view" ${p.view?'checked':''} class="w-3.5 h-3.5 rounded accent-teal-600"> view</label>
-            <label class="inline-flex items-center gap-1 text-[11px] text-slate-500"><input type="checkbox" data-r="${r}" data-m="${mk}" data-a="edit" ${p.edit?'checked':''} class="w-3.5 h-3.5 rounded accent-teal-600"> edit</label>
+            <label class="inline-flex items-center gap-1 text-[11px] text-slate-500 mr-2"><input type="checkbox" data-r="${r}" data-m="${mk}" data-a="view" ${p.view?'checked':''} class="w-3.5 h-3.5 rounded accent-slate-900"> view</label>
+            <label class="inline-flex items-center gap-1 text-[11px] text-slate-500"><input type="checkbox" data-r="${r}" data-m="${mk}" data-a="edit" ${p.edit?'checked':''} class="w-3.5 h-3.5 rounded accent-slate-900"> edit</label>
           </td>`;}).join('')}
       </tr>`).join('')}
       </tbody></table></div>`;

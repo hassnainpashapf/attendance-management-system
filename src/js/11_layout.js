@@ -77,8 +77,11 @@ function shellHTML(){
         <div class="flex-1"></div>
         <button id="punchBtn" class="${btnP} ${canPunch?'hidden sm:flex':'hidden'} items-center gap-1.5">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" class="w-4 h-4"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3.5 2"/></svg>${I18N.t('c4.layout.punchInOut')}</button>
+        <button id="filterByBtn" class="hidden md:flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-sm font-medium text-slate-600 hover:border-slate-300 hover:bg-slate-50 transition shadow-sm" title="Filter">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4"><path d="M4 5h16l-6.5 8v5.5L10 21v-8z"/></svg><span>Filter by</span></button>
+        <button id="helpBtn" class="w-10 h-10 rounded-xl bg-white border border-slate-200 text-slate-500 hover:border-slate-300 hover:bg-slate-50 flex items-center justify-center transition shadow-sm text-base font-medium" title="Help">?</button>
         ${canSeeAlerts?`<div class="relative">
-          <button id="bellBtn" class="relative w-10 h-10 rounded-xl text-slate-500 hover:text-slate-800 hover:bg-slate-100 flex items-center justify-center transition" title="Alerts">
+          <button id="bellBtn" class="relative w-10 h-10 rounded-xl bg-white border border-slate-200 text-slate-500 hover:border-slate-300 hover:bg-slate-50 flex items-center justify-center transition shadow-sm" title="Alerts">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg>
             <span id="bellDot" class="hidden absolute top-2 right-2 w-2 h-2 rounded-full bg-red-500 ring-2 ring-white"></span>
           </button>
@@ -108,6 +111,16 @@ function shellHTML(){
   document.getElementById('avatarBtn').onclick=e=>{e.stopPropagation();toggleAvatar();};
   const bl=document.getElementById('bellBtn');
   if(bl){ bl.onclick=e=>{e.stopPropagation();toggleBell();}; refreshBellDot(); }
+  /* Filter by: focus the page's first filter/search input */
+  const fb=document.getElementById('filterByBtn');
+  if(fb) fb.onclick=()=>{
+    const view=document.getElementById('view'); if(!view) return;
+    const t=view.querySelector('[data-vf-search], input[type="search"], input[placeholder*="Search" i]');
+    if(t){ t.focus(); t.scrollIntoView({behavior:'smooth', block:'center'}); }
+    else toast('No filters on this page','info');
+  };
+  const hb=document.getElementById('helpBtn');
+  if(hb) hb.onclick=()=>toast('Help: use the search or visit Settings for guides','info');
   wireTopSearch();
   document.addEventListener('click',()=>{
     ['avatarDrop','bellDrop','topSearchDrop'].forEach(id=>{ const d=document.getElementById(id); if(d) d.classList.add('hidden'); });

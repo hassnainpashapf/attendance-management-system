@@ -73,14 +73,14 @@ function t6Editor(cid, r, canEdit){
     </label>`;
   }
   if(r.options && r.options.length){
-    return `<select id="${cid}-${base}" data-key="${esc(r.key)}" class="w-44 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 bg-white focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none"${dis}>
+    return `<select id="${cid}-${base}" data-key="${esc(r.key)}" class="w-44 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 bg-white focus:border-slate-400 focus:ring-2 focus:ring-slate-900/10 outline-none"${dis}>
       ${r.options.map(o=>`<option value="${esc(o)}"${String(r.value)===o?' selected':''}>${esc(o)}</option>`).join('')}
     </select>`;
   }
   if(r.valueType === 'time'){
-    return `<input type="time" id="${cid}-${base}" data-key="${esc(r.key)}" value="${esc(r.value||'')}" class="w-44 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 bg-white focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none"${dis}>`;
+    return `<input type="time" id="${cid}-${base}" data-key="${esc(r.key)}" value="${esc(r.value||'')}" class="w-44 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 bg-white focus:border-slate-400 focus:ring-2 focus:ring-slate-900/10 outline-none"${dis}>`;
   }
-  return `<input type="number" id="${cid}-${base}" data-key="${esc(r.key)}" value="${esc(r.value)}"${r.valueType==='int'?' step="1"':''} class="w-44 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 bg-white focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none"${dis}>`;
+  return `<input type="number" id="${cid}-${base}" data-key="${esc(r.key)}" value="${esc(r.value)}"${r.valueType==='int'?' step="1"':''} class="w-44 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 bg-white focus:border-slate-400 focus:ring-2 focus:ring-slate-900/10 outline-none"${dis}>`;
 }
 
 App.routes['#/rules'] = async (el)=>{

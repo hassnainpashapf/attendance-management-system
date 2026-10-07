@@ -18,13 +18,14 @@ function vShortRs(n){ n=Number(n)||0; const a=Math.abs(n);
 function vPct(cur, prev){ cur=Number(cur)||0; prev=Number(prev)||0;
   if(!prev) return null; return (cur-prev)/Math.abs(prev)*100; }
 function vKpi(label, value, pct, ico){
-  const up=(pct||0)>=0, arrow=up?'▲':'▼', col=up?'text-emerald-600':'text-red-500';
+  const up=(pct||0)>=0, arrow=up?'↗':'↘', col=up?'text-emerald-600':'text-red-500';
   const pt=(pct==null||!isFinite(pct))?'<span class="text-slate-300">—</span>'
     :`<span class="${col} font-semibold">${arrow} ${Math.abs(pct).toFixed(1)}%</span>`;
   return `<div class="bg-white rounded-2xl border border-slate-200/70 p-5 shadow-[0_1px_3px_rgba(15,23,42,.04)]">
     <div class="flex items-center gap-2.5 mb-4">
       <span class="w-9 h-9 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center shrink-0">${ico}</span>
       <span class="text-[13px] text-slate-500 font-medium">${label}</span>
+      <span class="ml-auto w-7 h-7 rounded-lg bg-slate-50 border border-slate-100 text-slate-400 text-sm font-bold flex items-center justify-center shrink-0 select-none">···</span>
     </div>
     <div class="text-[26px] font-bold text-slate-900 tabular-nums tracking-tight">${value}</div>
     <div class="text-xs text-slate-400 mt-1.5">${pt} <span class="ml-1">Last 30 days</span></div>
@@ -131,20 +132,23 @@ async function renderRunsDash(body, cid, canEdit, emps){
       <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
         <h3 class="font-bold text-slate-800 text-[15px]">Payroll cost trend</h3>
         <div class="flex gap-2 text-xs font-medium text-slate-600">
-          <span class="inline-flex items-center gap-1.5 bg-slate-50 border border-slate-200/70 rounded-lg px-2.5 py-1"><span class="w-2.5 h-2.5 rounded bg-amber-500"></span>Tax</span>
-          <span class="inline-flex items-center gap-1.5 bg-slate-50 border border-slate-200/70 rounded-lg px-2.5 py-1"><span class="w-2.5 h-2.5 rounded bg-sky-300"></span>Gross</span>
-          <span class="inline-flex items-center gap-1.5 bg-slate-50 border border-slate-200/70 rounded-lg px-2.5 py-1"><span class="w-2.5 h-2.5 rounded bg-blue-700"></span>Benefits</span>
+          <span class="inline-flex items-center gap-1.5 bg-slate-50 border border-slate-200/70 rounded-lg px-2.5 py-1"><span class="w-3 h-3 rounded-[4px] bg-amber-500"></span>Tax</span>
+          <span class="inline-flex items-center gap-1.5 bg-slate-50 border border-slate-200/70 rounded-lg px-2.5 py-1"><span class="w-3 h-3 rounded-[4px] bg-sky-300"></span>Gross</span>
+          <span class="inline-flex items-center gap-1.5 bg-slate-50 border border-slate-200/70 rounded-lg px-2.5 py-1"><span class="w-3 h-3 rounded-[4px] bg-blue-700"></span>Benefits</span>
         </div>
       </div>
       <div class="h-64"><canvas id="${cid}-trend"></canvas></div>
     </div>
     <div class="bg-white rounded-2xl border border-slate-200/70 p-6 shadow-[0_1px_3px_rgba(15,23,42,.04)]">
-      <h3 class="font-bold text-slate-800 text-[15px] mb-4">Deductions</h3>
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="font-bold text-slate-800 text-[15px]">Deductions</h3>
+        <span class="w-7 h-7 rounded-lg bg-slate-50 border border-slate-100 text-slate-400 text-sm font-bold flex items-center justify-center shrink-0 select-none">···</span>
+      </div>
       ${dedEntries.length?`
       <div class="relative w-44 h-44 mx-auto"><canvas id="${cid}-donut"></canvas>
         <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
           <span class="text-[11px] text-slate-400">Total</span>
-          <span class="text-lg font-bold text-slate-900 tabular-nums">${vShortRs(dedTotal)}</span>
+          <span class="text-lg font-bold text-slate-900 tabular-nums">Rs ${fmtNum(Math.round(dedTotal))}</span>
         </div>
       </div>
       <div class="mt-5 space-y-2.5">${dedEntries.map((e,i)=>`
@@ -171,6 +175,9 @@ async function renderRunsDash(body, cid, canEdit, emps){
       <select id="${cid}-fDept" class="bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 focus:outline-none">
         <option value="all">▤ Department</option>${depts.map(d=>`<option>${esc(d)}</option>`).join('')}
       </select>
+      <select id="${cid}-fPay" class="bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 focus:outline-none">
+        <option value="all">▦ Pay method</option><option>Bank transfer</option><option>Cash</option><option>Cheque</option>
+      </select>
       ${canEdit?`<button class="${btnS} ml-auto" id="${cid}-import">⤓ Import Data</button>`:''}
     </div>
     <div id="${cid}-tbl"></div>
@@ -178,19 +185,40 @@ async function renderRunsDash(body, cid, canEdit, emps){
   </div>`;
 
   /* ---- charts ---- */
+  /* Verola hover crosshair: dashed vertical line at the active tooltip x */
+  const vHoverLine={id:'vHoverLine',afterDraw(c){try{const a=c.tooltip;if(!a||!a.getActiveElements)return;const ae=a.getActiveElements();if(!ae.length)return;const x=ae[0].element.x;const g=c.ctx;g.save();g.setLineDash([5,5]);g.strokeStyle='#cbd5e1';g.lineWidth=1;g.beginPath();g.moveTo(x,c.scales.y.top);g.lineTo(x,c.scales.y.bottom);g.stroke();g.restore();}catch(e){}}};
+  function vLongMon(m){ try{ return new Date(m+'-01').toLocaleDateString('en',{month:'short',year:'numeric'}); }catch(e){ return m; } }
+  /* Verola tooltip: white card, dark title, dot + label + value rows */
+  const vTip={backgroundColor:'#ffffff',titleColor:'#0f172a',bodyColor:'#334155',footerColor:'#334155',
+    borderColor:'#e2e8f0',borderWidth:1,padding:12,cornerRadius:12,boxPadding:5,usePointStyle:true,
+    titleFont:{size:13,weight:'700',family:'inherit'},bodyFont:{size:12.5,family:'inherit'},
+    titleMarginBottom:8,caretSize:6};
   let trendChart=null;
   const drawTrend=(n)=>{
     const elc=document.getElementById(cid+'-trend'); if(!elc||typeof Chart==='undefined') return;
     if(trendChart) trendChart.destroy();
     const d=trend.slice(-n);
-    trendChart=new Chart(elc,{type:'line',
+    const tipCbs={title:items=>{const t=d[items[0].dataIndex];return t?vLongMon(t.month):'';},
+      label:c=>' '+c.dataset.label+'  '+vShortRs(c.parsed.y)};
+    const hexA=(hex,a)=>{const h=hex.replace('#','');const r=parseInt(h.slice(0,2),16),g=parseInt(h.slice(2,4),16),b=parseInt(h.slice(4,6),16);return `rgba(${r},${g},${b},${a})`;};
+    const ds=(label,data,color,fill)=>({label,data,borderColor:color,backgroundColor:fill?hexA(color,.12):'transparent',fill,tension:.4,pointRadius:0,pointHoverRadius:4.5,pointHoverBackgroundColor:color,pointHoverBorderColor:'#fff',pointHoverBorderWidth:2,borderWidth:2.2});
+    trendChart=new Chart(elc,{
+      type:'line',
+      plugins:[vHoverLine],
       data:{labels:d.map(t=>vMon(t.month)),datasets:[
-        {label:'Tax',data:d.map(t=>Math.round(t.tax)),borderColor:'#f59e0b',backgroundColor:'rgba(245,158,11,.10)',fill:true,tension:.35,pointRadius:3,pointBackgroundColor:'#f59e0b',borderWidth:2},
-        {label:'Gross',data:d.map(t=>Math.round(t.gross)),borderColor:'#7dd3fc',fill:false,tension:.35,pointRadius:3,pointBackgroundColor:'#7dd3fc',borderWidth:2},
-        {label:'Benefits',data:d.map(t=>Math.round(t.ben)),borderColor:'#1d4ed8',fill:false,tension:.35,pointRadius:3,pointBackgroundColor:'#1d4ed8',borderWidth:2}]},
-      options:{responsive:true,maintainAspectRatio:false,
-        plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>' '+c.dataset.label+' '+vShortRs(c.parsed.y)}}},
-        scales:{y:{ticks:{callback:v=>vShortRs(v),color:'#94a3b8',font:{size:11}},grid:{color:'#f1f5f9'}},x:{grid:{display:false},ticks:{color:'#94a3b8',font:{size:11}}}}}});
+        ds('Tax',d.map(t=>Math.round(t.tax)),'#f59e0b',true),
+        ds('Gross',d.map(t=>Math.round(t.gross)),'#7dd3fc',false),
+        ds('Benefits',d.map(t=>Math.round(t.ben)),'#1d4ed8',false)
+      ]},
+      options:{
+        responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+        plugins:{legend:{display:false},tooltip:Object.assign({},vTip,{callbacks:tipCbs})},
+        scales:{
+          y:{ticks:{callback:vShortRs,color:'#94a3b8',font:{size:11},padding:8},grid:{color:'#f1f5f9'},border:{display:false}},
+          x:{grid:{display:false},border:{display:false},ticks:{color:'#94a3b8',font:{size:11}}}
+        }
+      }
+    });
   };
   drawTrend(3);
   body.querySelectorAll('#'+cid+'-range [data-range]').forEach(b=>b.onclick=()=>{
@@ -202,9 +230,11 @@ async function renderRunsDash(body, cid, canEdit, emps){
   if(dEl&&typeof Chart!=='undefined'&&dedEntries.length){
     new Chart(dEl,{type:'doughnut',
       data:{labels:dedEntries.map(e=>e.name),datasets:[{data:dedEntries.map(e=>e.amt),
-        backgroundColor:dedEntries.map((_,i)=>V_DONUT_COLORS[i%V_DONUT_COLORS.length]),borderWidth:3,borderColor:'#fff'}]},
+        backgroundColor:dedEntries.map((_,i)=>V_DONUT_COLORS[i%V_DONUT_COLORS.length]),borderWidth:3,borderColor:'#fff',hoverOffset:4}]},
       options:{responsive:true,maintainAspectRatio:true,cutout:'76%',
-        plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>' '+c.label+': '+vShortRs(c.parsed)}}}}});
+        plugins:{legend:{display:false},tooltip:Object.assign({},vTip,{
+          callbacks:{title:items=>items[0]?items[0].label:'',
+            label:c=>` ${vShortRs(c.parsed)} (${dedTotal?Math.round(c.parsed/dedTotal*100):0}%)`}})}}});
   }
 
   /* ---- payslip table ---- */
@@ -252,9 +282,9 @@ async function renderRunsDash(body, cid, canEdit, emps){
         <td class="px-4 py-3"><div class="flex items-center gap-2.5">${vAvatar(s.employeeName)}<span class="font-medium text-slate-700 whitespace-nowrap">${esc(s.employeeName)}</span></div></td>
         <td class="px-4 py-3 text-slate-600 whitespace-nowrap">${esc(e.department||'—')}</td>
         <td class="px-4 py-3">${vStatus(s.paid)}</td>
-        <td class="px-4 py-3 text-right tabular-nums font-medium text-slate-700">${vShortRs(gross)}</td>
-        <td class="px-4 py-3 text-right tabular-nums font-medium text-red-500">-${vShortRs(ded)}</td>
-        <td class="px-4 py-3 text-right tabular-nums font-semibold text-emerald-600">${vShortRs(s.net)}</td>
+        <td class="px-4 py-3 text-right tabular-nums font-medium text-slate-700">Rs ${fmtNum(Math.round(gross))}</td>
+        <td class="px-4 py-3 text-right tabular-nums font-medium text-red-500">-Rs ${fmtNum(Math.round(ded))}</td>
+        <td class="px-4 py-3 text-right tabular-nums font-semibold text-emerald-600">Rs ${fmtNum(Math.round(s.net))}</td>
         <td class="px-4 py-3 text-right"><div class="relative inline-block">
           <button class="w-8 h-8 rounded-lg border border-slate-200 text-slate-400 hover:text-slate-600 hover:border-slate-300 font-bold" data-vmenu="${s.id}">…</button>
           <div class="hidden absolute right-0 mt-1 w-44 bg-white border border-slate-200 rounded-xl shadow-lg z-20 py-1" data-vm id="vm-${cid}-${s.id}">
@@ -304,6 +334,8 @@ async function renderRunsDash(body, cid, canEdit, emps){
   document.getElementById(cid+'-fRun').onchange=async e=>{ st.runId=e.target.value; st.page=1; await renderTable(); };
   document.getElementById(cid+'-fStatus').onchange=e=>{ st.status=e.target.value; st.page=1; renderTable(); };
   document.getElementById(cid+'-fDept').onchange=e=>{ st.dept=e.target.value; st.page=1; renderTable(); };
+  /* Pay method filter: visual only (backend has no pay-method field yet) */
+  document.getElementById(cid+'-fPay').onchange=()=>{ st.page=1; renderTable(); };
   await renderTable();
 
   /* export */
@@ -653,15 +685,23 @@ function vDocAvatar(name){
   const init=(String(name||'?').trim().split(/\s+/).map(w=>w[0]).join('')||'?').slice(0,2).toUpperCase();
   return `<span class="w-8 h-8 rounded-full bg-slate-200 text-slate-500 text-[11px] font-bold inline-flex items-center justify-center shrink-0">${esc(init)}</span>`;
 }
-function vDocKpi(label, value, ico, sub){
+function vDocKpi(label, value, ico, sub, trend){
   return `<div class="bg-white rounded-2xl border border-slate-200/70 p-5 shadow-[0_1px_3px_rgba(15,23,42,.04)]">
     <div class="flex items-center gap-2.5 mb-4">
       <span class="w-9 h-9 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center shrink-0">${ico}</span>
       <span class="text-[13px] text-slate-500 font-medium">${label}</span>
+      <span class="ml-auto w-7 h-7 rounded-lg bg-slate-50 border border-slate-100 text-slate-400 text-sm font-bold flex items-center justify-center shrink-0 select-none">···</span>
     </div>
     <div class="text-[26px] font-bold text-slate-900 tabular-nums tracking-tight">${value}</div>
-    ${sub?`<div class="text-xs text-slate-400 mt-1.5">${sub}</div>`:''}
+    ${trend?`<div class="flex items-center gap-1.5 mt-1.5">${trend}</div>`:sub?`<div class="text-xs text-slate-400 mt-1.5">${sub}</div>`:''}
   </div>`;
+}
+/* Verola trend badge: vTrendBadge(pct, period) -> e.g. red "▼ 2.9%" + "Last 30 days" */
+function vDocTrend(pct, period){
+  const down=pct<0, flat=pct===0;
+  const cls=flat?'bg-slate-100 text-slate-500':down?'bg-red-50 text-red-600':'bg-emerald-50 text-emerald-600';
+  const arrow=flat?'–':down?'▼':'▲';
+  return `<span class="inline-flex items-center gap-0.5 text-[11px] font-bold px-1.5 py-0.5 rounded-md ${cls}">${arrow} ${Math.abs(pct).toFixed(1)}%</span><span class="text-[11px] text-slate-400">${period||''}</span>`;
 }
 const V_DOC_FILE='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M6 2.5h8l4 4V21.5H6z"/><path d="M14 2.5v4h4"/></svg>';
 const V_DOC_EMP='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><circle cx="12" cy="8" r="3.6"/><path d="M5 20c1-4 3.6-6 7-6s6 2 7 6"/></svg>';
@@ -672,9 +712,9 @@ App.routes['#/documents'] = async (el)=>{
   const cid=uid('doc');
   const canEdit=perm('documents','edit');
   el.innerHTML=`
-    <div class="flex items-center gap-2 text-[13px] text-slate-400 mb-4 anim-fadeUp">
-      <span class="text-base">⌂</span><a href="#/dashboard" class="hover:text-slate-600">${I18N.t('c4.nav.dashboard')}</a><span>›</span><span class="text-slate-700 font-semibold">${I18N.t('c4.nav.documents')}</span>
-      <div class="ml-auto">${canEdit?`<button class="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold shadow active:scale-[.98] transition" id="${cid}-add">+ ${I18N.t('c4.docs.addDoc')}</button>`:''}</div>
+    <div class="flex items-center justify-between mb-4 anim-fadeUp">
+      <h2 class="text-lg font-bold text-slate-900 tracking-tight">${I18N.t('c4.nav.documents')}</h2>
+      <div>${canEdit?`<button class="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold shadow active:scale-[.98] transition" id="${cid}-add">+ ${I18N.t('c4.docs.addDoc')}</button>`:''}</div>
     </div>
     <div id="${cid}-alerts"></div>
     <div id="${cid}-kpis" class="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-5"></div>
@@ -684,12 +724,7 @@ App.routes['#/documents'] = async (el)=>{
           <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">⌕</span>
           <input id="${cid}-q" placeholder="${I18N.t('c4.common.search')}..." class="w-full bg-white border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400 focus:outline-none">
         </div>
-        <select id="${cid}-fExp" class="bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 focus:outline-none">
-          <option value="all">${I18N.t('c4.common.all')}</option>
-          <option value="expiring">${txDoc('c4.docs.expiringSoon','Expiring soon')}</option>
-          <option value="expired">${I18N.t('c4.common.expired')}</option>
-          <option value="valid">${txDoc('c4.docs.valid','Valid')}</option>
-        </select>
+        <div id="${cid}-pills" class="flex flex-wrap items-center gap-2"></div>
       </div>
       <div id="${cid}-body"></div>
     </div>`;
@@ -698,7 +733,14 @@ App.routes['#/documents'] = async (el)=>{
   const kpisEl=document.getElementById(cid+'-kpis');
   const emps=await API.call('listEmployees').catch(()=>[]);
 
-  const st={q:'', f:'all', rows:[]};
+  const st={q:'', f:'all', rows:[], sortKey:'expiryDate', sortDir:1};
+  const PILL_F=[['all',I18N.t('c4.common.all')],['expiring',txDoc('c4.docs.expiringSoon','Expiring soon')],['expired',I18N.t('c4.common.expired')],['valid',txDoc('c4.docs.valid','Valid')]];
+  const pillsEl=document.getElementById(cid+'-pills');
+  function renderPills(){
+    pillsEl.innerHTML=PILL_F.map(([v,l])=>`<button data-pf="${v}" class="px-3.5 py-2 rounded-xl text-[13px] font-semibold border transition active:scale-[.98] ${st.f===v?'bg-slate-900 border-slate-900 text-white shadow':'bg-white border-slate-200 text-slate-600 hover:border-slate-300'}">${l}</button>`).join('');
+    pillsEl.querySelectorAll('[data-pf]').forEach(b=>b.onclick=()=>{ st.f=b.dataset.pf; renderPills(); render(); });
+  }
+  renderPills();
 
   function daysBadge(d){
     if(d.daysLeft<0) return badge(I18N.t('c4.common.expired'),'red');
@@ -707,6 +749,10 @@ App.routes['#/documents'] = async (el)=>{
     return badge(I18N.t('c4.common.daysLeftN').replace('{n}',d.daysLeft),'teal');
   }
 
+  function sortArrow(k){ return st.sortKey===k?`<span class="text-slate-700">${st.sortDir===1?'↑':'↓'}</span>`:'<span class="text-slate-300">↕</span>'; }
+  function thSort(label, key, cls){
+    return `<th data-sort="${key}" class="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 whitespace-nowrap ${cls||''} cursor-pointer select-none hover:text-slate-600">${label} ${sortArrow(key)}</th>`;
+  }
   function render(){
     const q=st.q.trim().toLowerCase();
     const rows=st.rows.filter(d=>{
@@ -716,25 +762,38 @@ App.routes['#/documents'] = async (el)=>{
       if(st.f==='valid'&&d.daysLeft<0) return false;
       return true;
     });
-    body.innerHTML=`<div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="border-b border-slate-100">
-      ${[I18N.t('c4.docs.colDocument'),I18N.t('c4.common.employee'),I18N.t('c4.docs.colExpiry'),I18N.t('c4.docs.colDaysLeft')].map(h=>
-        `<th class="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 whitespace-nowrap">${h}</th>`).join('')}
+    const sk=st.sortKey, sd=st.sortDir;
+    rows.sort((a,b)=>{
+      let x=a[sk], y=b[sk];
+      if(typeof x==='string'){ x=x.toLowerCase(); y=String(y).toLowerCase(); }
+      return (x<y?-1:x>y?1:0)*sd;
+    });
+    body.innerHTML=`<div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="border-b border-slate-100 bg-[#fafbfc]">
+      ${thSort(I18N.t('c4.docs.colDocument'),'title')}
+      ${thSort(I18N.t('c4.common.employee'),'employeeName')}
+      ${thSort(I18N.t('c4.docs.colExpiry'),'expiryDate')}
+      ${thSort(I18N.t('c4.docs.colDaysLeft'),'daysLeft')}
       <th class="px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-slate-400">${txDoc('c4.common.actions','')}</th></tr></thead>
       <tbody class="divide-y divide-slate-50">${rows.length?rows.map(d=>`
         <tr class="hover:bg-slate-50/70 transition-colors">
-          <td class="px-4 py-3"><div class="flex items-center gap-2.5">
+          <td class="px-4 py-4"><div class="flex items-center gap-2.5">
             <span class="w-8 h-8 rounded-lg bg-slate-100 text-slate-500 flex items-center justify-center shrink-0">${V_DOC_FILE}</span>
             <span class="font-medium text-slate-700">${esc(d.title)}</span></div></td>
-          <td class="px-4 py-3"><div class="flex items-center gap-2.5">${vDocAvatar(d.employeeName)}<span class="text-slate-600 whitespace-nowrap">${esc(d.employeeName||'—')}</span></div></td>
-          <td class="px-4 py-3"><span class="tabular-nums text-slate-600">${fmtDate(d.expiryDate)}</span></td>
-          <td class="px-4 py-3">${daysBadge(d)}</td>
-          <td class="px-4 py-3 text-right">${canEdit?`<div class="flex gap-1.5 justify-end">
+          <td class="px-4 py-4"><div class="flex items-center gap-2.5">${vDocAvatar(d.employeeName)}<span class="text-slate-600 whitespace-nowrap">${esc(d.employeeName||'—')}</span></div></td>
+          <td class="px-4 py-4"><span class="tabular-nums text-slate-600">${fmtDate(d.expiryDate)}</span></td>
+          <td class="px-4 py-4">${daysBadge(d)}</td>
+          <td class="px-4 py-4 text-right">${canEdit?`<div class="flex gap-1.5 justify-end">
             <button class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:border-slate-300 hover:bg-slate-50" data-dedit="${d.id}">${I18N.t('c4.common.edit')}</button>
             <button class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-red-600 hover:border-red-200 hover:bg-red-50" data-ddel="${d.id}">${I18N.t('c4.common.delete')}</button></div>`:''}</td>
         </tr>`).join(''):
         `<tr><td colspan="5" class="px-4 py-14 text-center"><div class="text-slate-300 text-3xl mb-2">◌</div><div class="text-sm text-slate-400">${I18N.t('c4.docs.emptyDocs')}</div></td></tr>`}
       </tbody></table></div>
       <div class="flex items-center px-4 py-3.5 border-t border-slate-100"><span class="text-xs text-slate-400">${txDoc('c4.common.showingN','Showing {n} documents').replace('{n}',rows.length)}</span></div>`;
+    body.querySelectorAll('[data-sort]').forEach(th=>th.onclick=()=>{
+      const k=th.dataset.sort;
+      if(st.sortKey===k) st.sortDir*=-1; else { st.sortKey=k; st.sortDir=1; }
+      render();
+    });
     body.querySelectorAll('[data-ddel]').forEach(b=>b.onclick=async()=>{
       if(!await confirmDlg(I18N.t('c4.docs.delDocTitle'),I18N.t('c4.emp.cannotUndo'),I18N.t('c4.common.delete'))) return;
       await API.call('deleteDocument',b.dataset.ddel); toast(I18N.t('c4.emp.deleted'),'success'); load();
@@ -791,7 +850,6 @@ App.routes['#/documents'] = async (el)=>{
   }
   const addB=document.getElementById(cid+'-add'); if(addB) addB.onclick=()=>openEditor(null);
   document.getElementById(cid+'-q').oninput=debounce(e=>{ st.q=e.target.value; render(); },300);
-  document.getElementById(cid+'-fExp').onchange=e=>{ st.f=e.target.value; render(); };
   await load();
 };
 })();
@@ -877,8 +935,11 @@ function shellHTML(){
         <div class="flex-1"></div>
         <button id="punchBtn" class="${btnP} ${canPunch?'hidden sm:flex':'hidden'} items-center gap-1.5">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" class="w-4 h-4"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3.5 2"/></svg>${I18N.t('c4.layout.punchInOut')}</button>
+        <button id="filterByBtn" class="hidden md:flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-sm font-medium text-slate-600 hover:border-slate-300 hover:bg-slate-50 transition shadow-sm" title="Filter">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4"><path d="M4 5h16l-6.5 8v5.5L10 21v-8z"/></svg><span>Filter by</span></button>
+        <button id="helpBtn" class="w-10 h-10 rounded-xl bg-white border border-slate-200 text-slate-500 hover:border-slate-300 hover:bg-slate-50 flex items-center justify-center transition shadow-sm text-base font-medium" title="Help">?</button>
         ${canSeeAlerts?`<div class="relative">
-          <button id="bellBtn" class="relative w-10 h-10 rounded-xl text-slate-500 hover:text-slate-800 hover:bg-slate-100 flex items-center justify-center transition" title="Alerts">
+          <button id="bellBtn" class="relative w-10 h-10 rounded-xl bg-white border border-slate-200 text-slate-500 hover:border-slate-300 hover:bg-slate-50 flex items-center justify-center transition shadow-sm" title="Alerts">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg>
             <span id="bellDot" class="hidden absolute top-2 right-2 w-2 h-2 rounded-full bg-red-500 ring-2 ring-white"></span>
           </button>
@@ -908,6 +969,16 @@ function shellHTML(){
   document.getElementById('avatarBtn').onclick=e=>{e.stopPropagation();toggleAvatar();};
   const bl=document.getElementById('bellBtn');
   if(bl){ bl.onclick=e=>{e.stopPropagation();toggleBell();}; refreshBellDot(); }
+  /* Filter by: focus the page's first filter/search input */
+  const fb=document.getElementById('filterByBtn');
+  if(fb) fb.onclick=()=>{
+    const view=document.getElementById('view'); if(!view) return;
+    const t=view.querySelector('[data-vf-search], input[type="search"], input[placeholder*="Search" i]');
+    if(t){ t.focus(); t.scrollIntoView({behavior:'smooth', block:'center'}); }
+    else toast('No filters on this page','info');
+  };
+  const hb=document.getElementById('helpBtn');
+  if(hb) hb.onclick=()=>toast('Help: use the search or visit Settings for guides','info');
   wireTopSearch();
   document.addEventListener('click',()=>{
     ['avatarDrop','bellDrop','topSearchDrop'].forEach(id=>{ const d=document.getElementById(id); if(d) d.classList.add('hidden'); });
@@ -1062,15 +1133,27 @@ App.nav.push({group:'MAIN', path:'#/reports', label:I18N.t('c4.nav.reports'), la
 
 /* ---------- Verola tokens (local copies) ---------- */
 function txRep(k, fb){ const v=I18N.t(k); return (v===k||!v)?fb:v; }
-function vRepKpi(label, value, ico, sub){
+function vRepKpi(label, value, ico, sub, trend){
   return `<div class="bg-white rounded-2xl border border-slate-200/70 p-5 shadow-[0_1px_3px_rgba(15,23,42,.04)]">
     <div class="flex items-center gap-2.5 mb-4">
       <span class="w-9 h-9 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center shrink-0">${ico}</span>
       <span class="text-[13px] text-slate-500 font-medium">${label}</span>
+      <span class="ml-auto w-7 h-7 rounded-lg bg-slate-50 border border-slate-100 text-slate-400 text-sm font-bold flex items-center justify-center shrink-0 select-none">···</span>
     </div>
     <div class="text-[26px] font-bold text-slate-900 tabular-nums tracking-tight">${value}</div>
-    ${sub?`<div class="text-xs text-slate-400 mt-1.5">${sub}</div>`:''}
+    ${trend?`<div class="flex items-center gap-1.5 mt-1.5">${trend}</div>`:sub?`<div class="text-xs text-slate-400 mt-1.5">${sub}</div>`:''}
   </div>`;
+}
+/* Verola trend badge: vRepTrend(pct, period) -> colored "▲ 9.1%" pill + period text */
+function vRepTrend(pct, period){
+  const down=pct<0, flat=pct===0;
+  const cls=flat?'bg-slate-100 text-slate-500':down?'bg-red-50 text-red-600':'bg-emerald-50 text-emerald-600';
+  const arrow=flat?'–':down?'▼':'▲';
+  return `<span class="inline-flex items-center gap-0.5 text-[11px] font-bold px-1.5 py-0.5 rounded-md ${cls}">${arrow} ${Math.abs(pct).toFixed(1)}%</span><span class="text-[11px] text-slate-400">${period||''}</span>`;
+}
+function vRepAvatar(name){
+  const init=(String(name||'?').trim().split(/\s+/).map(w=>w[0]).join('')||'?').slice(0,2).toUpperCase();
+  return `<span class="w-8 h-8 rounded-full bg-slate-200 text-slate-500 text-[11px] font-bold inline-flex items-center justify-center shrink-0">${esc(init)}</span>`;
 }
 const V_REP_AVG='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M4 20V10M10 20V4M16 20v-8M22 20H2"/></svg>';
 const V_REP_DAY='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><rect x="3.5" y="5" width="17" height="16" rx="2"/><path d="M8 3v4M16 3v4M3.5 10h17"/></svg>';
@@ -1080,9 +1163,9 @@ const V_REP_OOZ='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stro
 App.routes['#/reports'] = async (el)=>{
   const cid=uid('rep');
   el.innerHTML=`
-    <div class="flex items-center gap-2 text-[13px] text-slate-400 mb-4 anim-fadeUp">
-      <span class="text-base">⌂</span><a href="#/dashboard" class="hover:text-slate-600">${I18N.t('c4.nav.dashboard')}</a><span>›</span><span class="text-slate-700 font-semibold">${I18N.t('c4.nav.reports')}</span>
-      <div class="ml-auto flex gap-2">
+    <div class="flex items-center justify-between mb-4 anim-fadeUp">
+      <h2 class="text-lg font-bold text-slate-900 tracking-tight">${I18N.t('c4.nav.reports')}</h2>
+      <div class="flex gap-2">
         <button class="px-3.5 py-2 rounded-xl bg-white border border-slate-200 text-sm font-semibold text-slate-600 hover:border-slate-300 active:scale-[.98] transition" id="${cid}-csv-att">${I18N.t('c4.rep.csvAtt')}</button>
         <button class="px-3.5 py-2 rounded-xl bg-white border border-slate-200 text-sm font-semibold text-slate-600 hover:border-slate-300 active:scale-[.98] transition" id="${cid}-csv-emp">${I18N.t('c4.rep.csvEmp')}</button>
         <button class="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold shadow active:scale-[.98] transition" id="${cid}-csv-pay">${I18N.t('c4.rep.csvPay')}</button>
@@ -1141,24 +1224,38 @@ App.routes['#/reports'] = async (el)=>{
         <div id="${cid}-tbl"></div>
       </div>`;
     const tbl=document.getElementById(cid+'-tbl');
-    const st={q:''};
+    const st={q:'', sortKey:'pct', sortDir:-1};
+    function rSortArrow(k){ return st.sortKey===k?`<span class="text-slate-700">${st.sortDir===1?'↑':'↓'}</span>`:'<span class="text-slate-300">↕</span>'; }
+    function rTh(label, key, right){
+      return `<th data-rsort="${key||''}" class="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-slate-400 whitespace-nowrap ${right?'text-right':''} ${key?'cursor-pointer select-none hover:text-slate-600':''}">${label}${key?' '+rSortArrow(key):''}</th>`;
+    }
     function renderTbl(){
       const q=st.q.trim().toLowerCase();
       const frows=rows.filter(r=>!q||String(r.employeeName+' '+r.employeeCode).toLowerCase().includes(q));
-      tbl.innerHTML=`<div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="border-b border-slate-100">
-        ${[I18N.t('c4.common.employee'),I18N.t('c4.rep.colPresent'),I18N.t('c4.rep.colAbsent'),I18N.t('c4.rep.colLate'),I18N.t('c4.common.outOfZone'),I18N.t('c4.rep.colAttendance')].map((h,i)=>
-          `<th class="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 whitespace-nowrap ${i>=1?'text-right':''}">${h}</th>`).join('')}
+      const sk=st.sortKey, sd=st.sortDir;
+      frows.sort((a,b)=>{
+        let x=a[sk], y=b[sk];
+        if(typeof x==='string'){ x=x.toLowerCase(); y=String(y).toLowerCase(); }
+        return (x<y?-1:x>y?1:0)*sd;
+      });
+      tbl.innerHTML=`<div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="border-b border-slate-100 bg-[#fafbfc]">
+        ${rTh(I18N.t('c4.common.employee'),'employeeName')}${rTh(I18N.t('c4.rep.colPresent'),'present',1)}${rTh(I18N.t('c4.rep.colAbsent'),'absent',1)}${rTh(I18N.t('c4.rep.colLate'),'late',1)}${rTh(I18N.t('c4.common.outOfZone'),'outOfZone',1)}${rTh(I18N.t('c4.rep.colAttendance'),'pct',1)}
         </tr></thead><tbody class="divide-y divide-slate-50">${frows.length?frows.map(r=>`
         <tr class="hover:bg-slate-50/70 transition-colors">
-          <td class="px-4 py-3"><div><div class="font-medium text-slate-700">${esc(r.employeeName)}</div><div class="text-xs text-slate-400 tabular-nums">${esc(r.employeeCode)}</div></div></td>
-          <td class="px-4 py-3 text-right tabular-nums font-medium text-slate-700">${fmtNum(r.present)}</td>
-          <td class="px-4 py-3 text-right tabular-nums font-medium ${r.absent?'text-red-500':'text-slate-400'}">${fmtNum(r.absent)}</td>
-          <td class="px-4 py-3 text-right tabular-nums font-medium ${r.late?'text-amber-600':'text-slate-400'}">${fmtNum(r.late)}</td>
-          <td class="px-4 py-3 text-right tabular-nums text-slate-600">${fmtNum(r.outOfZone)}</td>
-          <td class="px-4 py-3"><div class="flex items-center gap-2 justify-end"><div class="w-24 h-2 bg-slate-100 rounded-full overflow-hidden"><div class="h-full rounded-full ${r.pct>=90?'bg-emerald-500':r.pct>=75?'bg-blue-600':r.pct>=60?'bg-amber-500':'bg-red-500'}" style="width:${r.pct}%"></div></div><span class="text-sm font-semibold tabular-nums text-slate-700">${r.pct}%</span></div></td>
+          <td class="px-4 py-4"><div class="flex items-center gap-2.5">${vRepAvatar(r.employeeName)}<div><div class="font-medium text-slate-700">${esc(r.employeeName)}</div><div class="text-xs text-slate-400 tabular-nums">${esc(r.employeeCode)}</div></div></div></td>
+          <td class="px-4 py-4 text-right tabular-nums font-medium text-slate-700">${fmtNum(r.present)}</td>
+          <td class="px-4 py-4 text-right tabular-nums font-medium ${r.absent?'text-red-500':'text-slate-400'}">${fmtNum(r.absent)}</td>
+          <td class="px-4 py-4 text-right tabular-nums font-medium ${r.late?'text-amber-600':'text-slate-400'}">${fmtNum(r.late)}</td>
+          <td class="px-4 py-4 text-right tabular-nums text-slate-600">${fmtNum(r.outOfZone)}</td>
+          <td class="px-4 py-4"><div class="flex items-center gap-2 justify-end"><div class="w-24 h-2 bg-slate-100 rounded-full overflow-hidden"><div class="h-full rounded-full ${r.pct>=90?'bg-emerald-500':r.pct>=75?'bg-blue-600':r.pct>=60?'bg-amber-500':'bg-red-500'}" style="width:${r.pct}%"></div></div><span class="text-sm font-semibold tabular-nums text-slate-700">${r.pct}%</span></div></td>
         </tr>`).join(''):`<tr><td colspan="6" class="px-4 py-14 text-center"><div class="text-slate-300 text-3xl mb-2">◌</div><div class="text-sm text-slate-400">${I18N.t('c4.rep.emptyRep')}</div></td></tr>`}
         </tbody></table></div>
         <div class="flex items-center px-4 py-3.5 border-t border-slate-100"><span class="text-xs text-slate-400">${txRep('c4.common.showingN','Showing {n} employees').replace('{n}',frows.length)}</span></div>`;
+      tbl.querySelectorAll('[data-rsort]').forEach(th=>{ if(!th.dataset.rsort) return; th.onclick=()=>{
+        const k=th.dataset.rsort;
+        if(st.sortKey===k) st.sortDir*=-1; else { st.sortKey=k; st.sortDir=1; }
+        renderTbl();
+      };});
     }
     renderTbl();
     document.getElementById(cid+'-q').oninput=debounce(e=>{ st.q=e.target.value; renderTbl(); },300);
@@ -1167,10 +1264,17 @@ App.routes['#/reports'] = async (el)=>{
       const top=rows.slice().sort((a,b)=>b.pct-a.pct).slice(0,15);
       new Chart(c,{type:'bar',
         data:{labels:top.map(r=>r.employeeName.split(' ')[0]),datasets:[{label:I18N.t('c4.rep.chartAttPct'),data:top.map(r=>r.pct),
-          backgroundColor:top.map(r=>r.pct>=90?'rgba(16,185,129,.8)':r.pct>=75?'rgba(37,99,235,.8)':r.pct>=60?'rgba(245,158,11,.8)':'rgba(239,68,68,.8)'),
-          borderRadius:6,maxBarThickness:30}]},
+          backgroundColor:top.map(r=>r.pct>=90?'#10b981':r.pct>=75?'#2563eb':r.pct>=60?'#f59e0b':'#ef4444'),
+          hoverBackgroundColor:top.map(r=>r.pct>=90?'#059669':r.pct>=75?'#1d4ed8':r.pct>=60?'#d97706':'#dc2626'),
+          borderRadius:6,maxBarThickness:28}]},
         options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,
-          plugins:{legend:{display:false}},scales:{x:{beginAtZero:true,max:100,ticks:{callback:v=>v+'%'}}}}});
+          plugins:{legend:{display:false},
+            tooltip:{backgroundColor:'#ffffff',titleColor:'#0f172a',bodyColor:'#334155',
+              borderColor:'#e2e8f0',borderWidth:1,padding:12,cornerRadius:12,boxPadding:5,usePointStyle:true,
+              titleFont:{size:13,weight:'700'},bodyFont:{size:12.5},
+              callbacks:{label:ctx=>' '+ctx.parsed.x+'%'}}},
+          scales:{x:{beginAtZero:true,max:100,ticks:{callback:v=>v+'%',color:'#94a3b8',font:{size:11},padding:8},grid:{color:'#f1f5f9'},border:{display:false}},
+                  y:{grid:{display:false},border:{display:false},ticks:{color:'#64748b',font:{size:11}}}}}});
     }
     animateCounters(body);
   }
@@ -1215,10 +1319,9 @@ App.routes['#/settings'] = async (el)=>{
   const V_ICO_BELL='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M10.3 21a2 2 0 003.4 0"/></svg>';
   const V_ICO_LOG='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M8 6h13M8 12h13M8 18h13"/><circle cx="4" cy="6" r="1.2" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="4" cy="18" r="1.2" fill="currentColor" stroke="none"/></svg>';
   const V_ICO_SHIELD='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M12 3l7 3v5c0 5-3.5 8-7 9-3.5-1-7-4-7-9V6z"/><path d="M9.5 12l2 2 3.5-4"/></svg>';
+  const V_ICO_ZKT='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><rect x="5" y="3" width="14" height="18" rx="2.5"/><circle cx="12" cy="11" r="3.2"/><path d="M12 14.2v2.3M9.5 18.5h5"/></svg>';
+  const V_ICO_KEY='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><circle cx="8" cy="15" r="4.5"/><path d="M11.5 11.5L20 3m-3 3l3 3m-6 0l3 3"/></svg>';
   el.innerHTML=`
-  <div class="flex items-center gap-2 text-[13px] text-slate-400 mb-4 anim-fadeUp">
-    <span class="text-base">⌂</span><a href="#/dashboard" class="hover:text-slate-600">Dashboard</a><span>›</span><span class="text-slate-700 font-semibold">Settings</span>
-  </div>
   <div class="mb-6 anim-fadeUp"><h1 class="text-[26px] font-bold text-slate-900 tracking-tight">Settings</h1>
   <p class="text-sm text-slate-400 mt-1">Company profile, notifications and access control</p></div>
   <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
@@ -1232,13 +1335,12 @@ App.routes['#/settings'] = async (el)=>{
         <div id="${cid}-smtp"></div>
       </div>
       <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.04)] p-6">
-        <h3 class="font-bold text-slate-800 mb-1">ZKTeco biometric device</h3>
-        <p class="text-xs text-slate-400 mb-5">Connect a ZKTeco fingerprint/face device. Punches from the device appear in attendance automatically.</p>
+        ${vHead(V_ICO_ZKT,'ZKTeco biometric device','Connect a ZKTeco fingerprint/face device. Punches from the device appear in attendance automatically.')}
         <div id="${cid}-zkt"></div>
       </div>
       <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.04)] p-6">
-        <h3 class="font-bold text-slate-800 mb-1">Sign-in options</h3>
-        <div class="flex items-start gap-3 mt-4">
+        ${vHead(V_ICO_KEY,'Sign-in options','')}
+        <div class="flex items-start gap-3 mt-1">
           <div class="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold shrink-0">G</div>
           <div class="text-sm"><div class="font-semibold text-slate-700">Sign in with Google</div>
           <div class="text-slate-400 text-xs mt-1">In production, admins can link their Google Workspace account for one-click sign-in. Enable it from the Apps Script project settings, then toggle it here.</div></div>
@@ -1359,7 +1461,7 @@ App.routes['#/settings'] = async (el)=>{
 
   const bb=document.getElementById(cid+'-backup');
   if(bb) bb.onclick=async()=>{
-    bb.disabled=true; bb.innerHTML='<span class="spinner" style="border-color:rgba(13,148,136,.3);border-top-color:#0d9488"></span>';
+    bb.disabled=true; bb.innerHTML='<span class="spinner" style="border-color:rgba(15,23,42,.2);border-top-color:#0f172a"></span>';
     try{
       const r=await API.call('backupNow');
       document.getElementById(cid+'-backupMsg').innerHTML=`<span class="text-emerald-600 font-medium">✓ Backup created:</span> <span class="text-slate-600">${esc(r.name)}</span>`;
@@ -1387,12 +1489,12 @@ App.routes['#/settings'] = async (el)=>{
         <th class="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400">Module</th>
         ${roles.map(r=>`<th class="px-3 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wider text-slate-400 capitalize">${esc(r)}</th>`).join('')}
       </tr></thead><tbody class="divide-y divide-slate-50">
-      ${MODULES.map(([mk,ml])=>`<tr class="hover:bg-teal-50/40">
+      ${MODULES.map(([mk,ml])=>`<tr class="hover:bg-slate-50/70">
         <td class="px-3 py-2.5 font-medium text-slate-700">${ml}</td>
         ${roles.map(r=>{ const p=(perms[r]||{})[mk]||{};
           return `<td class="px-3 py-2.5 text-center">
-            <label class="inline-flex items-center gap-1 text-[11px] text-slate-500 mr-2"><input type="checkbox" data-r="${r}" data-m="${mk}" data-a="view" ${p.view?'checked':''} class="w-3.5 h-3.5 rounded accent-teal-600"> view</label>
-            <label class="inline-flex items-center gap-1 text-[11px] text-slate-500"><input type="checkbox" data-r="${r}" data-m="${mk}" data-a="edit" ${p.edit?'checked':''} class="w-3.5 h-3.5 rounded accent-teal-600"> edit</label>
+            <label class="inline-flex items-center gap-1 text-[11px] text-slate-500 mr-2"><input type="checkbox" data-r="${r}" data-m="${mk}" data-a="view" ${p.view?'checked':''} class="w-3.5 h-3.5 rounded accent-slate-900"> view</label>
+            <label class="inline-flex items-center gap-1 text-[11px] text-slate-500"><input type="checkbox" data-r="${r}" data-m="${mk}" data-a="edit" ${p.edit?'checked':''} class="w-3.5 h-3.5 rounded accent-slate-900"> edit</label>
           </td>`;}).join('')}
       </tr>`).join('')}
       </tbody></table></div>`;
@@ -1422,14 +1524,14 @@ App.nav.push({group:'SYSTEM', path:'#/tenants', label:I18N.t('c4.nav.tenants'), 
 /* ---------- Verola tokens (local copies) ---------- */
 function txTen(k, fb){ const v=I18N.t(k); return (v===k||!v)?fb:v; }
 function vTenAvatar(name){
-  const init=(String(name||'?').trim().split(/\s+/).map(w=>w[0]).join('')||'?').slice(0,2).toUpperCase();
-  return `<span class="w-8 h-8 rounded-full bg-slate-900 text-white text-[11px] font-bold inline-flex items-center justify-center shrink-0">${esc(init)}</span>`;
+  return avatar(name); /* global Verola avatar: light gray initials circle */
 }
 function vTenKpi(label, value, ico, sub){
   return `<div class="bg-white rounded-2xl border border-slate-200/70 p-5 shadow-[0_1px_3px_rgba(15,23,42,.04)]">
     <div class="flex items-center gap-2.5 mb-4">
       <span class="w-9 h-9 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center shrink-0">${ico}</span>
       <span class="text-[13px] text-slate-500 font-medium">${label}</span>
+      <span class="ml-auto w-7 h-7 rounded-lg bg-slate-50 border border-slate-100 text-slate-400 text-sm font-bold flex items-center justify-center shrink-0 select-none">···</span>
     </div>
     <div class="text-[26px] font-bold text-slate-900 tabular-nums tracking-tight">${value}</div>
     ${sub?`<div class="text-xs text-slate-400 mt-1.5">${sub}</div>`:''}
@@ -1454,24 +1556,18 @@ App.routes['#/tenants'] = async (el)=>{
       <div class="ml-auto"><button class="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold shadow active:scale-[.98] transition" id="${cid}-add">+ ${I18N.t('c4.ten.createTenant')}</button></div>
     </div>
     <div id="${cid}-stats" class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4 mb-5"></div>
-    <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.04)] overflow-hidden anim-fadeUp">
-      <div class="flex flex-wrap items-center gap-2.5 p-4 border-b border-slate-100">
-        <div class="relative flex-1 min-w-[180px] max-w-xs">
-          <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">⌕</span>
-          <input id="${cid}-q" placeholder="${I18N.t('c4.common.search')}..." class="w-full bg-white border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400 focus:outline-none">
-        </div>
-        <select id="${cid}-fStatus" class="bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 focus:outline-none">
-          <option value="all">▽ ${I18N.t('c4.common.all')}</option>
-          <option value="active">${I18N.t('c4.common.active')}</option>
-          <option value="trial">${I18N.t('c4.ten.trial')}</option>
-          <option value="suspended">Suspended</option>
-        </select>
+    <div class="flex flex-wrap items-center gap-2.5 mb-4 anim-fadeUp">
+      <div class="relative">
+        <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">⌕</span>
+        <input id="${cid}-q" placeholder="${I18N.t('c4.common.search')}..." class="bg-white border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 focus:border-slate-400 focus:outline-none transition w-56">
       </div>
-      <div id="${cid}-body"></div>
-    </div>`;
+      ${[['all',I18N.t('c4.common.all')],['active',I18N.t('c4.common.active')],['trial',I18N.t('c4.ten.trial')],['suspended','Suspended']].map(([v,l])=>
+        `<button data-tenf="${v}" class="px-4 py-2.5 rounded-xl text-sm font-medium transition border ${'all'===v?'bg-slate-900 text-white border-slate-900 shadow':'bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50'}">${l}</button>`).join('')}
+    </div>
+    <div id="${cid}-body"></div>`;
   const statsEl=document.getElementById(cid+'-stats');
   const body=document.getElementById(cid+'-body');
-  const st={q:'', f:'all', rows:[]};
+  const st={q:'', f:'all', rows:[], page:1, perPage:8};
 
   function planBadge(p){
     return p==='Growth'?badge(p,'teal'):p==='Enterprise'?badge(p,'blue'):badge(p||'Starter','slate');
@@ -1489,27 +1585,32 @@ App.routes['#/tenants'] = async (el)=>{
       if(st.f!=='all'&&t.status!==st.f) return false;
       return true;
     });
-    body.innerHTML=`<div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="border-b border-slate-100">
-      ${[I18N.t('c4.ten.colCompany'),I18N.t('c4.ten.colPlan'),I18N.t('c4.common.status'),I18N.t('c4.ten.colUsers'),I18N.t('c4.nav.employees'),I18N.t('c4.ten.colCreated')].map((h,i)=>
-        `<th class="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 whitespace-nowrap ${i>=3?'text-right':''}">${h}</th>`).join('')}
-      <th class="px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-slate-400">${txTen('c4.common.actions','')}</th></tr></thead>
-      <tbody class="divide-y divide-slate-50">${rows.length?rows.map(t=>`
-        <tr class="hover:bg-slate-50/70 transition-colors">
-          <td class="px-4 py-3"><div class="flex items-center gap-2.5">${vTenAvatar(t.companyName)}
-            <div><div class="font-medium text-slate-700 whitespace-nowrap">${esc(t.companyName)}</div>
-            <div class="text-xs text-slate-400 font-mono">${I18N.t('c4.ten.codeLabel')} ${esc(t.loginCode)}</div></div></div></td>
-          <td class="px-4 py-3">${planBadge(t.plan)}</td>
-          <td class="px-4 py-3">${statusBadge(t.status)}</td>
-          <td class="px-4 py-3 text-right tabular-nums font-medium text-slate-700">${fmtNum(t.users||0)}</td>
-          <td class="px-4 py-3 text-right tabular-nums font-medium text-slate-700">${fmtNum(t.employees||0)}</td>
-          <td class="px-4 py-3 text-right"><span class="tabular-nums text-slate-600">${fmtDate(t.createdAt)}</span></td>
-          <td class="px-4 py-3 text-right"><div class="flex gap-1.5 justify-end">
-            <button class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:border-slate-300 hover:bg-slate-50" data-imp="${t.tenantId}">${I18N.t('c4.ten.loginAs')}</button>
-            <button class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:border-slate-300 hover:bg-slate-50" data-edit="${t.tenantId}">${I18N.t('c4.common.edit')}</button>
-            <button class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-red-600 hover:border-red-200 hover:bg-red-50" data-del="${t.tenantId}">${I18N.t('c4.common.delete')}</button></div></td>
-        </tr>`).join(''):`<tr><td colspan="7" class="px-4 py-14 text-center"><div class="text-slate-300 text-3xl mb-2">◌</div><div class="text-sm text-slate-400">${I18N.t('c4.ten.emptyTenants')}</div></td></tr>`}
-      </tbody></table></div>
-      <div class="flex items-center px-4 py-3.5 border-t border-slate-100"><span class="text-xs text-slate-400">${txTen('c4.common.showingN','Showing {n} companies').replace('{n}',rows.length)}</span></div>`;
+    const total=rows.length;
+    const pages=Math.max(1,Math.ceil(total/st.perPage));
+    if(st.page>pages) st.page=pages;
+    const slice=rows.slice((st.page-1)*st.perPage, st.page*st.perPage);
+    body.innerHTML=tableHTML([
+      {label:I18N.t('c4.ten.colCompany'), get:t=>`<div class="flex items-center gap-2.5">${vTenAvatar(t.companyName)}
+        <div><div class="font-medium text-slate-700 whitespace-nowrap">${esc(t.companyName)}</div>
+        <div class="text-xs text-slate-400 font-mono">${I18N.t('c4.ten.codeLabel')} ${esc(t.loginCode)}</div></div></div>`},
+      {label:I18N.t('c4.ten.colPlan'), get:t=>planBadge(t.plan)},
+      {label:I18N.t('c4.common.status'), get:t=>statusBadge(t.status)},
+      {label:I18N.t('c4.ten.colUsers'), num:1, get:t=>`<span class="font-medium text-slate-700">${fmtNum(t.users||0)}</span>`},
+      {label:I18N.t('c4.nav.employees'), num:1, get:t=>`<span class="font-medium text-slate-700">${fmtNum(t.employees||0)}</span>`},
+      {label:I18N.t('c4.ten.colCreated'), num:1, get:t=>`<span class="text-slate-600">${fmtDate(t.createdAt)}</span>`},
+      {label:'', nosort:1, get:t=>`<div class="flex gap-1.5 justify-end">
+        <button class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:border-slate-300 hover:bg-slate-50" data-imp="${t.tenantId}">${I18N.t('c4.ten.loginAs')}</button>
+        <button class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:border-slate-300 hover:bg-slate-50" data-edit="${t.tenantId}">${I18N.t('c4.common.edit')}</button>
+        <button class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-red-600 hover:border-red-200 hover:bg-red-50" data-del="${t.tenantId}">${I18N.t('c4.common.delete')}</button></div>`},
+    ], slice, {empty:I18N.t('c4.ten.emptyTenants'), checkbox:true,
+      pagination:vPaginationHTML(total, st.page, st.perPage)});
+    vPaginateBind(body, (p, v)=>{
+      if(p==='prev') st.page=Math.max(1,st.page-1);
+      else if(p==='next') st.page=Math.min(pages,st.page+1);
+      else if(p==='per'){ st.perPage=v; st.page=1; }
+      else st.page=p;
+      render();
+    });
     body.querySelectorAll('[data-imp]').forEach(b=>b.onclick=async()=>{
       const r=await API.call('impersonate',b.dataset.imp);
       Session.savedUser=Session.user;
@@ -1573,8 +1674,15 @@ App.routes['#/tenants'] = async (el)=>{
       m.close(); toast(I18N.t('c4.ten.tenantCreated').replace('{company}',d.companyName).replace('{code}',t.loginCode),'success'); load();
     };
   };
-  document.getElementById(cid+'-q').oninput=debounce(e=>{ st.q=e.target.value; render(); },300);
-  document.getElementById(cid+'-fStatus').onchange=e=>{ st.f=e.target.value; render(); };
+  document.getElementById(cid+'-q').oninput=debounce(e=>{ st.q=e.target.value; st.page=1; render(); },300);
+  el.querySelectorAll('[data-tenf]').forEach(b=>b.onclick=()=>{
+    st.f=b.dataset.tenf; st.page=1;
+    el.querySelectorAll('[data-tenf]').forEach(x=>{
+      const on=x.dataset.tenf===st.f;
+      x.className=`px-4 py-2.5 rounded-xl text-sm font-medium transition border ${on?'bg-slate-900 text-white border-slate-900 shadow':'bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50'}`;
+    });
+    render();
+  });
   await load();
 };
 })();

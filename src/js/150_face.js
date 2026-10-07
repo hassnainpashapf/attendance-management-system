@@ -259,18 +259,15 @@ if (typeof App !== 'undefined' && App.nav){
     var employees = await API.call('listEmployees').catch(function(){ return []; });
     var active = (employees || []).filter(function(e){ return e.active; });
     var opts = active.map(function(e){ return { value: e.id, label: e.name + ' (' + e.code + ')' }; });
-    var vCrumb = '<div class="flex items-center gap-2 text-[13px] text-slate-400 mb-4 anim-fadeUp">' +
-      '<span class="text-base">⌂</span><a href="#/dashboard" class="hover:text-slate-600">Dashboard</a><span>›</span>' +
-      '<span class="text-slate-700 font-semibold">' + esc(I18N.t('t1.title')) + '</span></div>' +
-      '<div class="mb-6 anim-fadeUp"><h1 class="text-[26px] font-bold text-slate-900 tracking-tight">' + esc(I18N.t('t1.title')) + '</h1>' +
+    var vTitle = '<div class="mb-6 anim-fadeUp"><h1 class="text-[26px] font-bold text-slate-900 tracking-tight">' + esc(I18N.t('t1.title')) + '</h1>' +
       '<p class="text-sm text-slate-400 mt-1">' + esc(I18N.t('t1.subtitle')) + '</p></div>';
     var vStepHead = function(n, title){
       var clean = String(title || '').replace(/^\d+\s*[·•]\s*/, '');
       return '<div class="flex items-center gap-2.5 mb-4">' +
-        '<span class="w-6 h-6 rounded-full bg-teal-600 text-white text-[11px] font-bold flex items-center justify-center shrink-0">' + n + '</span>' +
+        '<span class="w-6 h-6 rounded-full bg-slate-900 text-white text-[11px] font-bold flex items-center justify-center shrink-0">' + n + '</span>' +
         '<h3 class="font-bold text-slate-800">' + esc(clean) + '</h3></div>';
     };
-    el.innerHTML = vCrumb + '\n' +
+    el.innerHTML = vTitle + '\n' +
     '<div class="grid grid-cols-1 lg:grid-cols-2 gap-4 max-w-5xl">' +
       '<div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.04)] p-6 anim-fadeUp">' +
         vStepHead(1, I18N.t('t1.step1')) +
@@ -333,10 +330,12 @@ if (typeof App !== 'undefined' && App.nav){
     }
     function refreshSamples(){
       var box = $('samples');
-      box.innerHTML = esc(I18N.t('t1.samples')) + ': ' + state.samples.length + ' / ' + MAX_SAMPLES +
-        (state.samples.length ? ' (' + state.samples.map(function(_, i){
+      var list = state.samples.length ? ' <span class="text-slate-400">(' + state.samples.map(function(_, i){
             return esc(I18N.t('t1.sampleN')) + ' ' + (i + 1);
-          }).join(', ') + ')' : '');
+          }).join(', ') + ')</span>' : '';
+      box.innerHTML = '<span class="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full ' +
+        (state.samples.length ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500') + '">' +
+        esc(I18N.t('t1.samples')) + ': ' + state.samples.length + ' / ' + MAX_SAMPLES + '</span>' + list;
       $('save').disabled = !(state.empId && state.samples.length);
     }
 

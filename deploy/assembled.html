@@ -229,6 +229,8 @@ Object.assign(I18N.dict.en,{
 'c4.punch.flaggedOoz':'<br><b>Flagged as out-of-zone.</b>',
 'c4.punch.recordedToast':'{s} recorded',
 'c4.emp.sub':'Workforce directory',
+'c4.emp.allStatus':'All Status',
+'c4.emp.allDepts':'All Departments',
 'c4.emp.addEmployee':'+ Add Employee',
 'c4.emp.importCsv':'Import CSV',
 'c4.emp.tabEmployees':'Employees',
@@ -286,6 +288,7 @@ Object.assign(I18N.dict.en,{
 'c4.sites.emptySites':'No sites yet — add your first geofenced site.',
 'c4.sites.assignStaff':'Assign staff',
 'c4.sites.mapBtn':'Map',
+'c4.sites.searchPh':'Search sites…',
 'c4.sites.delSiteTitle':'Delete site?',
 'c4.sites.delSiteMsg':'Staff assignments for this site will be removed.',
 'c4.sites.siteDeleted':'Site deleted',
@@ -680,6 +683,8 @@ Object.assign(I18N.dict.ur,{
 'c4.punch.flaggedOoz':'<br><b>زون سے باہر فلیگ کیا گیا۔</b>',
 'c4.punch.recordedToast':'{s} ریکارڈ ہو گیا',
 'c4.emp.sub':'افرادی قوت کی ڈائریکٹری',
+'c4.emp.allStatus':'تمام حیثیتیں',
+'c4.emp.allDepts':'تمام شعبہ جات',
 'c4.emp.addEmployee':'+ ملازم شامل کریں',
 'c4.emp.importCsv':'CSV درآمد کریں',
 'c4.emp.tabEmployees':'ملازمین',
@@ -737,6 +742,7 @@ Object.assign(I18N.dict.ur,{
 'c4.sites.emptySites':'ابھی کوئی سائٹ نہیں — اپنی پہلی جیوفینس سائٹ شامل کریں۔',
 'c4.sites.assignStaff':'عملہ تفویض کریں',
 'c4.sites.mapBtn':'نقشہ',
+'c4.sites.searchPh':'سائٹس تلاش کریں…',
 'c4.sites.delSiteTitle':'سائٹ حذف کریں؟',
 'c4.sites.delSiteMsg':'اس سائٹ کے عملے کی تفویض ہٹ جائے گی۔',
 'c4.sites.siteDeleted':'سائٹ حذف ہو گئی',
@@ -1186,18 +1192,67 @@ function field(label,name,opts={}){
 }
 
 /* ---------- tables & cards ---------- */
+/* Verola-exact table: uppercase headers with sort icons, checkbox support,
+   pixel-perfect row styling. opts.checkbox=true adds selection column. */
 function tableHTML(cols, rows, opts={}){
   const tcls=opts.compact?'text-xs':'text-sm';
+  const sortIc='<span class="text-slate-300 text-[9px] ml-1.5 select-none">↕</span>';
+  const cbHead=opts.checkbox?`<th class="pl-5 pr-2 py-3 w-12"><input type="checkbox" data-vcb-all class="w-4 h-4 rounded border-slate-300 text-slate-900 accent-slate-900 cursor-pointer align-middle"></th>`:'';
   return `<div class="overflow-x-auto rounded-2xl border border-slate-200/70 bg-white shadow-[0_1px_3px_rgba(15,23,42,.04)]">
     <table class="w-full ${tcls}">
       <thead>
-        <tr class="border-b border-slate-200/70 bg-slate-50/60">${cols.map(c=>`<th class="px-5 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 whitespace-nowrap ${c.num?'text-right':''}">${c.label}</th>`).join('')}</tr>
+        <tr class="border-b border-slate-200/70 bg-[#fafbfc]">${cbHead}${cols.map(c=>`<th class="px-5 py-3.5 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 whitespace-nowrap ${c.num?'text-right':''}">${esc(c.label)}${c.nosort?'':sortIc}</th>`).join('')}</tr>
       </thead>
-      <tbody class="divide-y divide-slate-100">${rows.length?rows.map((r,i)=>`<tr class="hover:bg-slate-50 transition-colors">${cols.map(c=>{
-        const v=typeof c.get==='function'?c.get(r,i):r[c.key];
-        return `<td class="px-5 py-3.5 ${c.num?'text-right tabular-nums':''} ${c.cls||''}">${v??'<span class="text-slate-300">—</span>'}</td>`;
-      }).join('')}</tr>`).join(''):`<tr><td colspan="${cols.length}" class="px-4 py-12 text-center"><div class="text-slate-300 text-3xl mb-2">◌</div><div class="text-sm text-slate-400">${opts.empty||I18N.t('c4.common.noRecords')}</div></td></tr>`}</tbody>
-    </table></div>`;
+      <tbody class="divide-y divide-slate-100">${rows.length?rows.map((r,i)=>{
+        const cbCell=opts.checkbox?`<td class="pl-5 pr-2 py-4"><input type="checkbox" data-vcb="${esc(r.id||i)}" class="w-4 h-4 rounded border-slate-300 text-slate-900 accent-slate-900 cursor-pointer align-middle"></td>`:'';
+        return `<tr class="hover:bg-slate-50/70 transition-colors">${cbCell}${cols.map(c=>{
+          const v=typeof c.get==='function'?c.get(r,i):r[c.key];
+          return `<td class="px-5 py-4 ${c.num?'text-right tabular-nums':''} ${c.cls||''}">${v??'<span class="text-slate-300">—</span>'}</td>`;
+        }).join('')}</tr>`;}).join(''):`<tr><td colspan="${cols.length+(opts.checkbox?1:0)}" class="px-4 py-12 text-center"><div class="text-slate-300 text-3xl mb-2">◌</div><div class="text-sm text-slate-400">${opts.empty||I18N.t('c4.common.noRecords')}</div></td></tr>`}</tbody>
+    </table>
+    ${opts.pagination||''}</div>`;
+}
+/* Verola pagination: < 1 2 3 4 > + "Showing X to Y of Z" + per-page select.
+   Returns HTML; wire with vPaginateBind(root, onPage). */
+function vPaginationHTML(total, page, perPage){
+  const pages=Math.max(1, Math.ceil(total/perPage));
+  const from=total?((page-1)*perPage+1):0, to=Math.min(total, page*perPage);
+  let nums='';
+  for(let p=1;p<=pages;p++){
+    if(pages>7 && p>2 && p<pages-1 && Math.abs(p-page)>1){ if(!nums.endsWith('…')) nums+='<span class="px-1 text-slate-300">…</span>'; continue; }
+    nums+=`<button data-pg="${p}" class="min-w-[2rem] h-8 px-2 rounded-lg text-[13px] font-semibold transition ${p===page?'bg-slate-900 text-white shadow':'text-slate-500 hover:bg-slate-100'}">${p}</button>`;
+  }
+  return `<div class="flex flex-wrap items-center justify-between gap-3 px-5 py-4 border-t border-slate-100">
+    <div class="flex items-center gap-1.5">
+      <button data-pgprev class="w-8 h-8 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 flex items-center justify-center transition ${page<=1?'opacity-40 pointer-events-none':''}">‹</button>
+      ${nums}
+      <button data-pgnext class="w-8 h-8 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 flex items-center justify-center transition ${page>=pages?'opacity-40 pointer-events-none':''}">›</button>
+    </div>
+    <div class="flex items-center gap-3">
+      <span class="text-[13px] text-slate-400">Showing ${from} to ${to} of ${fmtNum(total)} entries</span>
+      <select data-pgper class="bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-[13px] text-slate-600 font-medium focus:outline-none cursor-pointer">
+        ${[8,16,50,100].map(n=>`<option value="${n}" ${n===perPage?'selected':''}>${n} - ${n===8?'50':n===16?'100':n}</option>`).join('')}
+      </select>
+    </div></div>`;
+}
+/* Bind pagination events. onChange(page, perPage) re-renders. */
+function vPaginateBind(root, onChange){
+  if(!root) return;
+  root.querySelectorAll('[data-pg]').forEach(b=>{ b.onclick=()=>onChange(parseInt(b.dataset.pg,10)); });
+  const pv=root.querySelector('[data-pgprev]'); if(pv) pv.onclick=()=>onChange('prev');
+  const nx=root.querySelector('[data-pgnext]'); if(nx) nx.onclick=()=>onChange('next');
+  const pp=root.querySelector('[data-pgper]'); if(pp) pp.onchange=()=>onChange('per', parseInt(pp.value,10));
+}
+/* Verola filter row: search + pill buttons. */
+function vFilterRow(searchPh, pills, extra=''){
+  return `<div class="flex flex-wrap items-center gap-2.5 mb-4">
+    <div class="relative">
+      <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" class="w-4 h-4"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></span>
+      <input data-vf-search placeholder="${esc(searchPh||'Search…')}" class="bg-white border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 focus:border-slate-400 focus:outline-none transition w-56">
+    </div>
+    ${pills.map(p=>`<button data-vf-pill="${esc(p.key)}" class="px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-sm font-medium text-slate-600 hover:border-slate-300 hover:bg-slate-50 transition flex items-center gap-2">${p.icon||''}${esc(p.label)}</button>`).join('')}
+    <div class="flex-1"></div>${extra}</div>`;
 }
 function statCard(label,value,sub='',accent='slate',icon='',raw=null,prefix=''){
   const chip={slate:'bg-slate-100 text-slate-500',teal:'bg-teal-50 text-teal-600',emerald:'bg-emerald-50 text-emerald-600',red:'bg-red-50 text-red-500',amber:'bg-amber-50 text-amber-500',blue:'bg-blue-50 text-blue-500',violet:'bg-violet-50 text-violet-500',cyan:'bg-cyan-50 text-cyan-600'}[accent]||'bg-slate-100 text-slate-500';
@@ -1243,7 +1298,14 @@ const btnS='px-4 py-2.5 rounded-xl bg-white border border-slate-200 hover:border
 const btnD='px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-semibold shadow active:scale-[.98] transition';
 function badge(text,color='slate'){
   const m={slate:'bg-slate-100 text-slate-600 ring-slate-200',emerald:'bg-emerald-50 text-emerald-700 ring-emerald-200',teal:'bg-teal-50 text-teal-700 ring-teal-200',red:'bg-red-50 text-red-600 ring-red-200',amber:'bg-amber-50 text-amber-700 ring-amber-200',blue:'bg-blue-50 text-blue-700 ring-blue-200',sky:'bg-sky-50 text-sky-700 ring-sky-200',violet:'bg-violet-50 text-violet-700 ring-violet-200',cyan:'bg-cyan-50 text-cyan-700 ring-cyan-200'};
-  return `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ring-1 ${m[color]||m.slate} whitespace-nowrap"><span class="w-1 h-1 rounded-full bg-current"></span>${esc(text)}</span>`;
+  /* Verola: status pills use ✓ for success / ◷ for pending, dot otherwise */
+  const ic=color==='emerald'?'✓':(color==='amber'?'◷':null);
+  const dot=ic?`<span class="text-[11px] leading-none">${ic}</span>`:`<span class="w-1 h-1 rounded-full bg-current"></span>`;
+  return `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ring-1 ${m[color]||m.slate} whitespace-nowrap">${dot}${esc(text)}</span>`;
+}
+/* Verola "..." actions button */
+function vActionsMenu(){
+  return `<button class="w-8 h-8 rounded-lg bg-white border border-slate-200 text-slate-500 hover:border-slate-300 hover:bg-slate-50 flex items-center justify-center transition text-base leading-none tracking-widest" data-vact>•••</button>`;
 }
 
 /* ---------- misc ---------- */
@@ -1289,6 +1351,7 @@ G.haversineM=haversineM;
 G.toast=toast; G.modal=modal; G.confirmDlg=confirmDlg;
 G.formVal=formVal; G.formNum=formNum; G.collectForm=collectForm; G.field=field;
 G.tableHTML=tableHTML; G.statCard=statCard; G.pageHead=pageHead; G.avatar=avatar;
+G.vPaginationHTML=vPaginationHTML; G.vPaginateBind=vPaginateBind; G.vFilterRow=vFilterRow; G.vActionsMenu=vActionsMenu;
 G.animateCounters=animateCounters; G.emptyState=emptyState;
 G.btnP=btnP; G.btnS=btnS; G.btnD=btnD; G.badge=badge;
 G.debounce=debounce; G.uid=uid; G.toCSV=toCSV; G.dlCSV=dlCSV; G.downloadCSV=downloadCSV;
@@ -1944,13 +2007,14 @@ function vShortRs(n){ n=Number(n)||0; const a=Math.abs(n);
 function vPct(cur, prev){ cur=Number(cur)||0; prev=Number(prev)||0;
   if(!prev) return null; return (cur-prev)/Math.abs(prev)*100; }
 function vKpi(label, value, pct, ico){
-  const up=(pct||0)>=0, arrow=up?'▲':'▼', col=up?'text-emerald-600':'text-red-500';
+  const up=(pct||0)>=0, arrow=up?'↗':'↘', col=up?'text-emerald-600':'text-red-500';
   const pt=(pct==null||!isFinite(pct))?'<span class="text-slate-300">—</span>'
     :`<span class="${col} font-semibold">${arrow} ${Math.abs(pct).toFixed(1)}%</span>`;
   return `<div class="bg-white rounded-2xl border border-slate-200/70 p-5 shadow-[0_1px_3px_rgba(15,23,42,.04)]">
     <div class="flex items-center gap-2.5 mb-4">
       <span class="w-9 h-9 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center shrink-0">${ico}</span>
       <span class="text-[13px] text-slate-500 font-medium">${label}</span>
+      <span class="ml-auto w-7 h-7 rounded-lg bg-slate-50 border border-slate-100 text-slate-400 text-sm font-bold flex items-center justify-center shrink-0 select-none">···</span>
     </div>
     <div class="text-[26px] font-bold text-slate-900 tabular-nums tracking-tight">${value}</div>
     <div class="text-xs text-slate-400 mt-1.5">${pt} <span class="ml-1">Last 30 days</span></div>
@@ -2057,20 +2121,23 @@ async function renderRunsDash(body, cid, canEdit, emps){
       <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
         <h3 class="font-bold text-slate-800 text-[15px]">Payroll cost trend</h3>
         <div class="flex gap-2 text-xs font-medium text-slate-600">
-          <span class="inline-flex items-center gap-1.5 bg-slate-50 border border-slate-200/70 rounded-lg px-2.5 py-1"><span class="w-2.5 h-2.5 rounded bg-amber-500"></span>Tax</span>
-          <span class="inline-flex items-center gap-1.5 bg-slate-50 border border-slate-200/70 rounded-lg px-2.5 py-1"><span class="w-2.5 h-2.5 rounded bg-sky-300"></span>Gross</span>
-          <span class="inline-flex items-center gap-1.5 bg-slate-50 border border-slate-200/70 rounded-lg px-2.5 py-1"><span class="w-2.5 h-2.5 rounded bg-blue-700"></span>Benefits</span>
+          <span class="inline-flex items-center gap-1.5 bg-slate-50 border border-slate-200/70 rounded-lg px-2.5 py-1"><span class="w-3 h-3 rounded-[4px] bg-amber-500"></span>Tax</span>
+          <span class="inline-flex items-center gap-1.5 bg-slate-50 border border-slate-200/70 rounded-lg px-2.5 py-1"><span class="w-3 h-3 rounded-[4px] bg-sky-300"></span>Gross</span>
+          <span class="inline-flex items-center gap-1.5 bg-slate-50 border border-slate-200/70 rounded-lg px-2.5 py-1"><span class="w-3 h-3 rounded-[4px] bg-blue-700"></span>Benefits</span>
         </div>
       </div>
       <div class="h-64"><canvas id="${cid}-trend"></canvas></div>
     </div>
     <div class="bg-white rounded-2xl border border-slate-200/70 p-6 shadow-[0_1px_3px_rgba(15,23,42,.04)]">
-      <h3 class="font-bold text-slate-800 text-[15px] mb-4">Deductions</h3>
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="font-bold text-slate-800 text-[15px]">Deductions</h3>
+        <span class="w-7 h-7 rounded-lg bg-slate-50 border border-slate-100 text-slate-400 text-sm font-bold flex items-center justify-center shrink-0 select-none">···</span>
+      </div>
       ${dedEntries.length?`
       <div class="relative w-44 h-44 mx-auto"><canvas id="${cid}-donut"></canvas>
         <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
           <span class="text-[11px] text-slate-400">Total</span>
-          <span class="text-lg font-bold text-slate-900 tabular-nums">${vShortRs(dedTotal)}</span>
+          <span class="text-lg font-bold text-slate-900 tabular-nums">Rs ${fmtNum(Math.round(dedTotal))}</span>
         </div>
       </div>
       <div class="mt-5 space-y-2.5">${dedEntries.map((e,i)=>`
@@ -2097,6 +2164,9 @@ async function renderRunsDash(body, cid, canEdit, emps){
       <select id="${cid}-fDept" class="bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 focus:outline-none">
         <option value="all">▤ Department</option>${depts.map(d=>`<option>${esc(d)}</option>`).join('')}
       </select>
+      <select id="${cid}-fPay" class="bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 focus:outline-none">
+        <option value="all">▦ Pay method</option><option>Bank transfer</option><option>Cash</option><option>Cheque</option>
+      </select>
       ${canEdit?`<button class="${btnS} ml-auto" id="${cid}-import">⤓ Import Data</button>`:''}
     </div>
     <div id="${cid}-tbl"></div>
@@ -2104,19 +2174,40 @@ async function renderRunsDash(body, cid, canEdit, emps){
   </div>`;
 
   /* ---- charts ---- */
+  /* Verola hover crosshair: dashed vertical line at the active tooltip x */
+  const vHoverLine={id:'vHoverLine',afterDraw(c){try{const a=c.tooltip;if(!a||!a.getActiveElements)return;const ae=a.getActiveElements();if(!ae.length)return;const x=ae[0].element.x;const g=c.ctx;g.save();g.setLineDash([5,5]);g.strokeStyle='#cbd5e1';g.lineWidth=1;g.beginPath();g.moveTo(x,c.scales.y.top);g.lineTo(x,c.scales.y.bottom);g.stroke();g.restore();}catch(e){}}};
+  function vLongMon(m){ try{ return new Date(m+'-01').toLocaleDateString('en',{month:'short',year:'numeric'}); }catch(e){ return m; } }
+  /* Verola tooltip: white card, dark title, dot + label + value rows */
+  const vTip={backgroundColor:'#ffffff',titleColor:'#0f172a',bodyColor:'#334155',footerColor:'#334155',
+    borderColor:'#e2e8f0',borderWidth:1,padding:12,cornerRadius:12,boxPadding:5,usePointStyle:true,
+    titleFont:{size:13,weight:'700',family:'inherit'},bodyFont:{size:12.5,family:'inherit'},
+    titleMarginBottom:8,caretSize:6};
   let trendChart=null;
   const drawTrend=(n)=>{
     const elc=document.getElementById(cid+'-trend'); if(!elc||typeof Chart==='undefined') return;
     if(trendChart) trendChart.destroy();
     const d=trend.slice(-n);
-    trendChart=new Chart(elc,{type:'line',
+    const tipCbs={title:items=>{const t=d[items[0].dataIndex];return t?vLongMon(t.month):'';},
+      label:c=>' '+c.dataset.label+'  '+vShortRs(c.parsed.y)};
+    const hexA=(hex,a)=>{const h=hex.replace('#','');const r=parseInt(h.slice(0,2),16),g=parseInt(h.slice(2,4),16),b=parseInt(h.slice(4,6),16);return `rgba(${r},${g},${b},${a})`;};
+    const ds=(label,data,color,fill)=>({label,data,borderColor:color,backgroundColor:fill?hexA(color,.12):'transparent',fill,tension:.4,pointRadius:0,pointHoverRadius:4.5,pointHoverBackgroundColor:color,pointHoverBorderColor:'#fff',pointHoverBorderWidth:2,borderWidth:2.2});
+    trendChart=new Chart(elc,{
+      type:'line',
+      plugins:[vHoverLine],
       data:{labels:d.map(t=>vMon(t.month)),datasets:[
-        {label:'Tax',data:d.map(t=>Math.round(t.tax)),borderColor:'#f59e0b',backgroundColor:'rgba(245,158,11,.10)',fill:true,tension:.35,pointRadius:3,pointBackgroundColor:'#f59e0b',borderWidth:2},
-        {label:'Gross',data:d.map(t=>Math.round(t.gross)),borderColor:'#7dd3fc',fill:false,tension:.35,pointRadius:3,pointBackgroundColor:'#7dd3fc',borderWidth:2},
-        {label:'Benefits',data:d.map(t=>Math.round(t.ben)),borderColor:'#1d4ed8',fill:false,tension:.35,pointRadius:3,pointBackgroundColor:'#1d4ed8',borderWidth:2}]},
-      options:{responsive:true,maintainAspectRatio:false,
-        plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>' '+c.dataset.label+' '+vShortRs(c.parsed.y)}}},
-        scales:{y:{ticks:{callback:v=>vShortRs(v),color:'#94a3b8',font:{size:11}},grid:{color:'#f1f5f9'}},x:{grid:{display:false},ticks:{color:'#94a3b8',font:{size:11}}}}}});
+        ds('Tax',d.map(t=>Math.round(t.tax)),'#f59e0b',true),
+        ds('Gross',d.map(t=>Math.round(t.gross)),'#7dd3fc',false),
+        ds('Benefits',d.map(t=>Math.round(t.ben)),'#1d4ed8',false)
+      ]},
+      options:{
+        responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+        plugins:{legend:{display:false},tooltip:Object.assign({},vTip,{callbacks:tipCbs})},
+        scales:{
+          y:{ticks:{callback:vShortRs,color:'#94a3b8',font:{size:11},padding:8},grid:{color:'#f1f5f9'},border:{display:false}},
+          x:{grid:{display:false},border:{display:false},ticks:{color:'#94a3b8',font:{size:11}}}
+        }
+      }
+    });
   };
   drawTrend(3);
   body.querySelectorAll('#'+cid+'-range [data-range]').forEach(b=>b.onclick=()=>{
@@ -2128,9 +2219,11 @@ async function renderRunsDash(body, cid, canEdit, emps){
   if(dEl&&typeof Chart!=='undefined'&&dedEntries.length){
     new Chart(dEl,{type:'doughnut',
       data:{labels:dedEntries.map(e=>e.name),datasets:[{data:dedEntries.map(e=>e.amt),
-        backgroundColor:dedEntries.map((_,i)=>V_DONUT_COLORS[i%V_DONUT_COLORS.length]),borderWidth:3,borderColor:'#fff'}]},
+        backgroundColor:dedEntries.map((_,i)=>V_DONUT_COLORS[i%V_DONUT_COLORS.length]),borderWidth:3,borderColor:'#fff',hoverOffset:4}]},
       options:{responsive:true,maintainAspectRatio:true,cutout:'76%',
-        plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>' '+c.label+': '+vShortRs(c.parsed)}}}}});
+        plugins:{legend:{display:false},tooltip:Object.assign({},vTip,{
+          callbacks:{title:items=>items[0]?items[0].label:'',
+            label:c=>` ${vShortRs(c.parsed)} (${dedTotal?Math.round(c.parsed/dedTotal*100):0}%)`}})}}});
   }
 
   /* ---- payslip table ---- */
@@ -2178,9 +2271,9 @@ async function renderRunsDash(body, cid, canEdit, emps){
         <td class="px-4 py-3"><div class="flex items-center gap-2.5">${vAvatar(s.employeeName)}<span class="font-medium text-slate-700 whitespace-nowrap">${esc(s.employeeName)}</span></div></td>
         <td class="px-4 py-3 text-slate-600 whitespace-nowrap">${esc(e.department||'—')}</td>
         <td class="px-4 py-3">${vStatus(s.paid)}</td>
-        <td class="px-4 py-3 text-right tabular-nums font-medium text-slate-700">${vShortRs(gross)}</td>
-        <td class="px-4 py-3 text-right tabular-nums font-medium text-red-500">-${vShortRs(ded)}</td>
-        <td class="px-4 py-3 text-right tabular-nums font-semibold text-emerald-600">${vShortRs(s.net)}</td>
+        <td class="px-4 py-3 text-right tabular-nums font-medium text-slate-700">Rs ${fmtNum(Math.round(gross))}</td>
+        <td class="px-4 py-3 text-right tabular-nums font-medium text-red-500">-Rs ${fmtNum(Math.round(ded))}</td>
+        <td class="px-4 py-3 text-right tabular-nums font-semibold text-emerald-600">Rs ${fmtNum(Math.round(s.net))}</td>
         <td class="px-4 py-3 text-right"><div class="relative inline-block">
           <button class="w-8 h-8 rounded-lg border border-slate-200 text-slate-400 hover:text-slate-600 hover:border-slate-300 font-bold" data-vmenu="${s.id}">…</button>
           <div class="hidden absolute right-0 mt-1 w-44 bg-white border border-slate-200 rounded-xl shadow-lg z-20 py-1" data-vm id="vm-${cid}-${s.id}">
@@ -2230,6 +2323,8 @@ async function renderRunsDash(body, cid, canEdit, emps){
   document.getElementById(cid+'-fRun').onchange=async e=>{ st.runId=e.target.value; st.page=1; await renderTable(); };
   document.getElementById(cid+'-fStatus').onchange=e=>{ st.status=e.target.value; st.page=1; renderTable(); };
   document.getElementById(cid+'-fDept').onchange=e=>{ st.dept=e.target.value; st.page=1; renderTable(); };
+  /* Pay method filter: visual only (backend has no pay-method field yet) */
+  document.getElementById(cid+'-fPay').onchange=()=>{ st.page=1; renderTable(); };
   await renderTable();
 
   /* export */
@@ -2579,15 +2674,23 @@ function vDocAvatar(name){
   const init=(String(name||'?').trim().split(/\s+/).map(w=>w[0]).join('')||'?').slice(0,2).toUpperCase();
   return `<span class="w-8 h-8 rounded-full bg-slate-200 text-slate-500 text-[11px] font-bold inline-flex items-center justify-center shrink-0">${esc(init)}</span>`;
 }
-function vDocKpi(label, value, ico, sub){
+function vDocKpi(label, value, ico, sub, trend){
   return `<div class="bg-white rounded-2xl border border-slate-200/70 p-5 shadow-[0_1px_3px_rgba(15,23,42,.04)]">
     <div class="flex items-center gap-2.5 mb-4">
       <span class="w-9 h-9 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center shrink-0">${ico}</span>
       <span class="text-[13px] text-slate-500 font-medium">${label}</span>
+      <span class="ml-auto w-7 h-7 rounded-lg bg-slate-50 border border-slate-100 text-slate-400 text-sm font-bold flex items-center justify-center shrink-0 select-none">···</span>
     </div>
     <div class="text-[26px] font-bold text-slate-900 tabular-nums tracking-tight">${value}</div>
-    ${sub?`<div class="text-xs text-slate-400 mt-1.5">${sub}</div>`:''}
+    ${trend?`<div class="flex items-center gap-1.5 mt-1.5">${trend}</div>`:sub?`<div class="text-xs text-slate-400 mt-1.5">${sub}</div>`:''}
   </div>`;
+}
+/* Verola trend badge: vTrendBadge(pct, period) -> e.g. red "▼ 2.9%" + "Last 30 days" */
+function vDocTrend(pct, period){
+  const down=pct<0, flat=pct===0;
+  const cls=flat?'bg-slate-100 text-slate-500':down?'bg-red-50 text-red-600':'bg-emerald-50 text-emerald-600';
+  const arrow=flat?'–':down?'▼':'▲';
+  return `<span class="inline-flex items-center gap-0.5 text-[11px] font-bold px-1.5 py-0.5 rounded-md ${cls}">${arrow} ${Math.abs(pct).toFixed(1)}%</span><span class="text-[11px] text-slate-400">${period||''}</span>`;
 }
 const V_DOC_FILE='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M6 2.5h8l4 4V21.5H6z"/><path d="M14 2.5v4h4"/></svg>';
 const V_DOC_EMP='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><circle cx="12" cy="8" r="3.6"/><path d="M5 20c1-4 3.6-6 7-6s6 2 7 6"/></svg>';
@@ -2598,9 +2701,9 @@ App.routes['#/documents'] = async (el)=>{
   const cid=uid('doc');
   const canEdit=perm('documents','edit');
   el.innerHTML=`
-    <div class="flex items-center gap-2 text-[13px] text-slate-400 mb-4 anim-fadeUp">
-      <span class="text-base">⌂</span><a href="#/dashboard" class="hover:text-slate-600">${I18N.t('c4.nav.dashboard')}</a><span>›</span><span class="text-slate-700 font-semibold">${I18N.t('c4.nav.documents')}</span>
-      <div class="ml-auto">${canEdit?`<button class="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold shadow active:scale-[.98] transition" id="${cid}-add">+ ${I18N.t('c4.docs.addDoc')}</button>`:''}</div>
+    <div class="flex items-center justify-between mb-4 anim-fadeUp">
+      <h2 class="text-lg font-bold text-slate-900 tracking-tight">${I18N.t('c4.nav.documents')}</h2>
+      <div>${canEdit?`<button class="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold shadow active:scale-[.98] transition" id="${cid}-add">+ ${I18N.t('c4.docs.addDoc')}</button>`:''}</div>
     </div>
     <div id="${cid}-alerts"></div>
     <div id="${cid}-kpis" class="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-5"></div>
@@ -2610,12 +2713,7 @@ App.routes['#/documents'] = async (el)=>{
           <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">⌕</span>
           <input id="${cid}-q" placeholder="${I18N.t('c4.common.search')}..." class="w-full bg-white border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400 focus:outline-none">
         </div>
-        <select id="${cid}-fExp" class="bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 focus:outline-none">
-          <option value="all">${I18N.t('c4.common.all')}</option>
-          <option value="expiring">${txDoc('c4.docs.expiringSoon','Expiring soon')}</option>
-          <option value="expired">${I18N.t('c4.common.expired')}</option>
-          <option value="valid">${txDoc('c4.docs.valid','Valid')}</option>
-        </select>
+        <div id="${cid}-pills" class="flex flex-wrap items-center gap-2"></div>
       </div>
       <div id="${cid}-body"></div>
     </div>`;
@@ -2624,7 +2722,14 @@ App.routes['#/documents'] = async (el)=>{
   const kpisEl=document.getElementById(cid+'-kpis');
   const emps=await API.call('listEmployees').catch(()=>[]);
 
-  const st={q:'', f:'all', rows:[]};
+  const st={q:'', f:'all', rows:[], sortKey:'expiryDate', sortDir:1};
+  const PILL_F=[['all',I18N.t('c4.common.all')],['expiring',txDoc('c4.docs.expiringSoon','Expiring soon')],['expired',I18N.t('c4.common.expired')],['valid',txDoc('c4.docs.valid','Valid')]];
+  const pillsEl=document.getElementById(cid+'-pills');
+  function renderPills(){
+    pillsEl.innerHTML=PILL_F.map(([v,l])=>`<button data-pf="${v}" class="px-3.5 py-2 rounded-xl text-[13px] font-semibold border transition active:scale-[.98] ${st.f===v?'bg-slate-900 border-slate-900 text-white shadow':'bg-white border-slate-200 text-slate-600 hover:border-slate-300'}">${l}</button>`).join('');
+    pillsEl.querySelectorAll('[data-pf]').forEach(b=>b.onclick=()=>{ st.f=b.dataset.pf; renderPills(); render(); });
+  }
+  renderPills();
 
   function daysBadge(d){
     if(d.daysLeft<0) return badge(I18N.t('c4.common.expired'),'red');
@@ -2633,6 +2738,10 @@ App.routes['#/documents'] = async (el)=>{
     return badge(I18N.t('c4.common.daysLeftN').replace('{n}',d.daysLeft),'teal');
   }
 
+  function sortArrow(k){ return st.sortKey===k?`<span class="text-slate-700">${st.sortDir===1?'↑':'↓'}</span>`:'<span class="text-slate-300">↕</span>'; }
+  function thSort(label, key, cls){
+    return `<th data-sort="${key}" class="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 whitespace-nowrap ${cls||''} cursor-pointer select-none hover:text-slate-600">${label} ${sortArrow(key)}</th>`;
+  }
   function render(){
     const q=st.q.trim().toLowerCase();
     const rows=st.rows.filter(d=>{
@@ -2642,25 +2751,38 @@ App.routes['#/documents'] = async (el)=>{
       if(st.f==='valid'&&d.daysLeft<0) return false;
       return true;
     });
-    body.innerHTML=`<div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="border-b border-slate-100">
-      ${[I18N.t('c4.docs.colDocument'),I18N.t('c4.common.employee'),I18N.t('c4.docs.colExpiry'),I18N.t('c4.docs.colDaysLeft')].map(h=>
-        `<th class="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 whitespace-nowrap">${h}</th>`).join('')}
+    const sk=st.sortKey, sd=st.sortDir;
+    rows.sort((a,b)=>{
+      let x=a[sk], y=b[sk];
+      if(typeof x==='string'){ x=x.toLowerCase(); y=String(y).toLowerCase(); }
+      return (x<y?-1:x>y?1:0)*sd;
+    });
+    body.innerHTML=`<div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="border-b border-slate-100 bg-[#fafbfc]">
+      ${thSort(I18N.t('c4.docs.colDocument'),'title')}
+      ${thSort(I18N.t('c4.common.employee'),'employeeName')}
+      ${thSort(I18N.t('c4.docs.colExpiry'),'expiryDate')}
+      ${thSort(I18N.t('c4.docs.colDaysLeft'),'daysLeft')}
       <th class="px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-slate-400">${txDoc('c4.common.actions','')}</th></tr></thead>
       <tbody class="divide-y divide-slate-50">${rows.length?rows.map(d=>`
         <tr class="hover:bg-slate-50/70 transition-colors">
-          <td class="px-4 py-3"><div class="flex items-center gap-2.5">
+          <td class="px-4 py-4"><div class="flex items-center gap-2.5">
             <span class="w-8 h-8 rounded-lg bg-slate-100 text-slate-500 flex items-center justify-center shrink-0">${V_DOC_FILE}</span>
             <span class="font-medium text-slate-700">${esc(d.title)}</span></div></td>
-          <td class="px-4 py-3"><div class="flex items-center gap-2.5">${vDocAvatar(d.employeeName)}<span class="text-slate-600 whitespace-nowrap">${esc(d.employeeName||'—')}</span></div></td>
-          <td class="px-4 py-3"><span class="tabular-nums text-slate-600">${fmtDate(d.expiryDate)}</span></td>
-          <td class="px-4 py-3">${daysBadge(d)}</td>
-          <td class="px-4 py-3 text-right">${canEdit?`<div class="flex gap-1.5 justify-end">
+          <td class="px-4 py-4"><div class="flex items-center gap-2.5">${vDocAvatar(d.employeeName)}<span class="text-slate-600 whitespace-nowrap">${esc(d.employeeName||'—')}</span></div></td>
+          <td class="px-4 py-4"><span class="tabular-nums text-slate-600">${fmtDate(d.expiryDate)}</span></td>
+          <td class="px-4 py-4">${daysBadge(d)}</td>
+          <td class="px-4 py-4 text-right">${canEdit?`<div class="flex gap-1.5 justify-end">
             <button class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:border-slate-300 hover:bg-slate-50" data-dedit="${d.id}">${I18N.t('c4.common.edit')}</button>
             <button class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-red-600 hover:border-red-200 hover:bg-red-50" data-ddel="${d.id}">${I18N.t('c4.common.delete')}</button></div>`:''}</td>
         </tr>`).join(''):
         `<tr><td colspan="5" class="px-4 py-14 text-center"><div class="text-slate-300 text-3xl mb-2">◌</div><div class="text-sm text-slate-400">${I18N.t('c4.docs.emptyDocs')}</div></td></tr>`}
       </tbody></table></div>
       <div class="flex items-center px-4 py-3.5 border-t border-slate-100"><span class="text-xs text-slate-400">${txDoc('c4.common.showingN','Showing {n} documents').replace('{n}',rows.length)}</span></div>`;
+    body.querySelectorAll('[data-sort]').forEach(th=>th.onclick=()=>{
+      const k=th.dataset.sort;
+      if(st.sortKey===k) st.sortDir*=-1; else { st.sortKey=k; st.sortDir=1; }
+      render();
+    });
     body.querySelectorAll('[data-ddel]').forEach(b=>b.onclick=async()=>{
       if(!await confirmDlg(I18N.t('c4.docs.delDocTitle'),I18N.t('c4.emp.cannotUndo'),I18N.t('c4.common.delete'))) return;
       await API.call('deleteDocument',b.dataset.ddel); toast(I18N.t('c4.emp.deleted'),'success'); load();
@@ -2717,7 +2839,6 @@ App.routes['#/documents'] = async (el)=>{
   }
   const addB=document.getElementById(cid+'-add'); if(addB) addB.onclick=()=>openEditor(null);
   document.getElementById(cid+'-q').oninput=debounce(e=>{ st.q=e.target.value; render(); },300);
-  document.getElementById(cid+'-fExp').onchange=e=>{ st.f=e.target.value; render(); };
   await load();
 };
 })();
@@ -2803,8 +2924,11 @@ function shellHTML(){
         <div class="flex-1"></div>
         <button id="punchBtn" class="${btnP} ${canPunch?'hidden sm:flex':'hidden'} items-center gap-1.5">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" class="w-4 h-4"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3.5 2"/></svg>${I18N.t('c4.layout.punchInOut')}</button>
+        <button id="filterByBtn" class="hidden md:flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-sm font-medium text-slate-600 hover:border-slate-300 hover:bg-slate-50 transition shadow-sm" title="Filter">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4"><path d="M4 5h16l-6.5 8v5.5L10 21v-8z"/></svg><span>Filter by</span></button>
+        <button id="helpBtn" class="w-10 h-10 rounded-xl bg-white border border-slate-200 text-slate-500 hover:border-slate-300 hover:bg-slate-50 flex items-center justify-center transition shadow-sm text-base font-medium" title="Help">?</button>
         ${canSeeAlerts?`<div class="relative">
-          <button id="bellBtn" class="relative w-10 h-10 rounded-xl text-slate-500 hover:text-slate-800 hover:bg-slate-100 flex items-center justify-center transition" title="Alerts">
+          <button id="bellBtn" class="relative w-10 h-10 rounded-xl bg-white border border-slate-200 text-slate-500 hover:border-slate-300 hover:bg-slate-50 flex items-center justify-center transition shadow-sm" title="Alerts">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg>
             <span id="bellDot" class="hidden absolute top-2 right-2 w-2 h-2 rounded-full bg-red-500 ring-2 ring-white"></span>
           </button>
@@ -2834,6 +2958,16 @@ function shellHTML(){
   document.getElementById('avatarBtn').onclick=e=>{e.stopPropagation();toggleAvatar();};
   const bl=document.getElementById('bellBtn');
   if(bl){ bl.onclick=e=>{e.stopPropagation();toggleBell();}; refreshBellDot(); }
+  /* Filter by: focus the page's first filter/search input */
+  const fb=document.getElementById('filterByBtn');
+  if(fb) fb.onclick=()=>{
+    const view=document.getElementById('view'); if(!view) return;
+    const t=view.querySelector('[data-vf-search], input[type="search"], input[placeholder*="Search" i]');
+    if(t){ t.focus(); t.scrollIntoView({behavior:'smooth', block:'center'}); }
+    else toast('No filters on this page','info');
+  };
+  const hb=document.getElementById('helpBtn');
+  if(hb) hb.onclick=()=>toast('Help: use the search or visit Settings for guides','info');
   wireTopSearch();
   document.addEventListener('click',()=>{
     ['avatarDrop','bellDrop','topSearchDrop'].forEach(id=>{ const d=document.getElementById(id); if(d) d.classList.add('hidden'); });
@@ -2988,15 +3122,27 @@ App.nav.push({group:'MAIN', path:'#/reports', label:I18N.t('c4.nav.reports'), la
 
 /* ---------- Verola tokens (local copies) ---------- */
 function txRep(k, fb){ const v=I18N.t(k); return (v===k||!v)?fb:v; }
-function vRepKpi(label, value, ico, sub){
+function vRepKpi(label, value, ico, sub, trend){
   return `<div class="bg-white rounded-2xl border border-slate-200/70 p-5 shadow-[0_1px_3px_rgba(15,23,42,.04)]">
     <div class="flex items-center gap-2.5 mb-4">
       <span class="w-9 h-9 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center shrink-0">${ico}</span>
       <span class="text-[13px] text-slate-500 font-medium">${label}</span>
+      <span class="ml-auto w-7 h-7 rounded-lg bg-slate-50 border border-slate-100 text-slate-400 text-sm font-bold flex items-center justify-center shrink-0 select-none">···</span>
     </div>
     <div class="text-[26px] font-bold text-slate-900 tabular-nums tracking-tight">${value}</div>
-    ${sub?`<div class="text-xs text-slate-400 mt-1.5">${sub}</div>`:''}
+    ${trend?`<div class="flex items-center gap-1.5 mt-1.5">${trend}</div>`:sub?`<div class="text-xs text-slate-400 mt-1.5">${sub}</div>`:''}
   </div>`;
+}
+/* Verola trend badge: vRepTrend(pct, period) -> colored "▲ 9.1%" pill + period text */
+function vRepTrend(pct, period){
+  const down=pct<0, flat=pct===0;
+  const cls=flat?'bg-slate-100 text-slate-500':down?'bg-red-50 text-red-600':'bg-emerald-50 text-emerald-600';
+  const arrow=flat?'–':down?'▼':'▲';
+  return `<span class="inline-flex items-center gap-0.5 text-[11px] font-bold px-1.5 py-0.5 rounded-md ${cls}">${arrow} ${Math.abs(pct).toFixed(1)}%</span><span class="text-[11px] text-slate-400">${period||''}</span>`;
+}
+function vRepAvatar(name){
+  const init=(String(name||'?').trim().split(/\s+/).map(w=>w[0]).join('')||'?').slice(0,2).toUpperCase();
+  return `<span class="w-8 h-8 rounded-full bg-slate-200 text-slate-500 text-[11px] font-bold inline-flex items-center justify-center shrink-0">${esc(init)}</span>`;
 }
 const V_REP_AVG='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M4 20V10M10 20V4M16 20v-8M22 20H2"/></svg>';
 const V_REP_DAY='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><rect x="3.5" y="5" width="17" height="16" rx="2"/><path d="M8 3v4M16 3v4M3.5 10h17"/></svg>';
@@ -3006,9 +3152,9 @@ const V_REP_OOZ='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stro
 App.routes['#/reports'] = async (el)=>{
   const cid=uid('rep');
   el.innerHTML=`
-    <div class="flex items-center gap-2 text-[13px] text-slate-400 mb-4 anim-fadeUp">
-      <span class="text-base">⌂</span><a href="#/dashboard" class="hover:text-slate-600">${I18N.t('c4.nav.dashboard')}</a><span>›</span><span class="text-slate-700 font-semibold">${I18N.t('c4.nav.reports')}</span>
-      <div class="ml-auto flex gap-2">
+    <div class="flex items-center justify-between mb-4 anim-fadeUp">
+      <h2 class="text-lg font-bold text-slate-900 tracking-tight">${I18N.t('c4.nav.reports')}</h2>
+      <div class="flex gap-2">
         <button class="px-3.5 py-2 rounded-xl bg-white border border-slate-200 text-sm font-semibold text-slate-600 hover:border-slate-300 active:scale-[.98] transition" id="${cid}-csv-att">${I18N.t('c4.rep.csvAtt')}</button>
         <button class="px-3.5 py-2 rounded-xl bg-white border border-slate-200 text-sm font-semibold text-slate-600 hover:border-slate-300 active:scale-[.98] transition" id="${cid}-csv-emp">${I18N.t('c4.rep.csvEmp')}</button>
         <button class="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold shadow active:scale-[.98] transition" id="${cid}-csv-pay">${I18N.t('c4.rep.csvPay')}</button>
@@ -3067,24 +3213,38 @@ App.routes['#/reports'] = async (el)=>{
         <div id="${cid}-tbl"></div>
       </div>`;
     const tbl=document.getElementById(cid+'-tbl');
-    const st={q:''};
+    const st={q:'', sortKey:'pct', sortDir:-1};
+    function rSortArrow(k){ return st.sortKey===k?`<span class="text-slate-700">${st.sortDir===1?'↑':'↓'}</span>`:'<span class="text-slate-300">↕</span>'; }
+    function rTh(label, key, right){
+      return `<th data-rsort="${key||''}" class="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-slate-400 whitespace-nowrap ${right?'text-right':''} ${key?'cursor-pointer select-none hover:text-slate-600':''}">${label}${key?' '+rSortArrow(key):''}</th>`;
+    }
     function renderTbl(){
       const q=st.q.trim().toLowerCase();
       const frows=rows.filter(r=>!q||String(r.employeeName+' '+r.employeeCode).toLowerCase().includes(q));
-      tbl.innerHTML=`<div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="border-b border-slate-100">
-        ${[I18N.t('c4.common.employee'),I18N.t('c4.rep.colPresent'),I18N.t('c4.rep.colAbsent'),I18N.t('c4.rep.colLate'),I18N.t('c4.common.outOfZone'),I18N.t('c4.rep.colAttendance')].map((h,i)=>
-          `<th class="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 whitespace-nowrap ${i>=1?'text-right':''}">${h}</th>`).join('')}
+      const sk=st.sortKey, sd=st.sortDir;
+      frows.sort((a,b)=>{
+        let x=a[sk], y=b[sk];
+        if(typeof x==='string'){ x=x.toLowerCase(); y=String(y).toLowerCase(); }
+        return (x<y?-1:x>y?1:0)*sd;
+      });
+      tbl.innerHTML=`<div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="border-b border-slate-100 bg-[#fafbfc]">
+        ${rTh(I18N.t('c4.common.employee'),'employeeName')}${rTh(I18N.t('c4.rep.colPresent'),'present',1)}${rTh(I18N.t('c4.rep.colAbsent'),'absent',1)}${rTh(I18N.t('c4.rep.colLate'),'late',1)}${rTh(I18N.t('c4.common.outOfZone'),'outOfZone',1)}${rTh(I18N.t('c4.rep.colAttendance'),'pct',1)}
         </tr></thead><tbody class="divide-y divide-slate-50">${frows.length?frows.map(r=>`
         <tr class="hover:bg-slate-50/70 transition-colors">
-          <td class="px-4 py-3"><div><div class="font-medium text-slate-700">${esc(r.employeeName)}</div><div class="text-xs text-slate-400 tabular-nums">${esc(r.employeeCode)}</div></div></td>
-          <td class="px-4 py-3 text-right tabular-nums font-medium text-slate-700">${fmtNum(r.present)}</td>
-          <td class="px-4 py-3 text-right tabular-nums font-medium ${r.absent?'text-red-500':'text-slate-400'}">${fmtNum(r.absent)}</td>
-          <td class="px-4 py-3 text-right tabular-nums font-medium ${r.late?'text-amber-600':'text-slate-400'}">${fmtNum(r.late)}</td>
-          <td class="px-4 py-3 text-right tabular-nums text-slate-600">${fmtNum(r.outOfZone)}</td>
-          <td class="px-4 py-3"><div class="flex items-center gap-2 justify-end"><div class="w-24 h-2 bg-slate-100 rounded-full overflow-hidden"><div class="h-full rounded-full ${r.pct>=90?'bg-emerald-500':r.pct>=75?'bg-blue-600':r.pct>=60?'bg-amber-500':'bg-red-500'}" style="width:${r.pct}%"></div></div><span class="text-sm font-semibold tabular-nums text-slate-700">${r.pct}%</span></div></td>
+          <td class="px-4 py-4"><div class="flex items-center gap-2.5">${vRepAvatar(r.employeeName)}<div><div class="font-medium text-slate-700">${esc(r.employeeName)}</div><div class="text-xs text-slate-400 tabular-nums">${esc(r.employeeCode)}</div></div></div></td>
+          <td class="px-4 py-4 text-right tabular-nums font-medium text-slate-700">${fmtNum(r.present)}</td>
+          <td class="px-4 py-4 text-right tabular-nums font-medium ${r.absent?'text-red-500':'text-slate-400'}">${fmtNum(r.absent)}</td>
+          <td class="px-4 py-4 text-right tabular-nums font-medium ${r.late?'text-amber-600':'text-slate-400'}">${fmtNum(r.late)}</td>
+          <td class="px-4 py-4 text-right tabular-nums text-slate-600">${fmtNum(r.outOfZone)}</td>
+          <td class="px-4 py-4"><div class="flex items-center gap-2 justify-end"><div class="w-24 h-2 bg-slate-100 rounded-full overflow-hidden"><div class="h-full rounded-full ${r.pct>=90?'bg-emerald-500':r.pct>=75?'bg-blue-600':r.pct>=60?'bg-amber-500':'bg-red-500'}" style="width:${r.pct}%"></div></div><span class="text-sm font-semibold tabular-nums text-slate-700">${r.pct}%</span></div></td>
         </tr>`).join(''):`<tr><td colspan="6" class="px-4 py-14 text-center"><div class="text-slate-300 text-3xl mb-2">◌</div><div class="text-sm text-slate-400">${I18N.t('c4.rep.emptyRep')}</div></td></tr>`}
         </tbody></table></div>
         <div class="flex items-center px-4 py-3.5 border-t border-slate-100"><span class="text-xs text-slate-400">${txRep('c4.common.showingN','Showing {n} employees').replace('{n}',frows.length)}</span></div>`;
+      tbl.querySelectorAll('[data-rsort]').forEach(th=>{ if(!th.dataset.rsort) return; th.onclick=()=>{
+        const k=th.dataset.rsort;
+        if(st.sortKey===k) st.sortDir*=-1; else { st.sortKey=k; st.sortDir=1; }
+        renderTbl();
+      };});
     }
     renderTbl();
     document.getElementById(cid+'-q').oninput=debounce(e=>{ st.q=e.target.value; renderTbl(); },300);
@@ -3093,10 +3253,17 @@ App.routes['#/reports'] = async (el)=>{
       const top=rows.slice().sort((a,b)=>b.pct-a.pct).slice(0,15);
       new Chart(c,{type:'bar',
         data:{labels:top.map(r=>r.employeeName.split(' ')[0]),datasets:[{label:I18N.t('c4.rep.chartAttPct'),data:top.map(r=>r.pct),
-          backgroundColor:top.map(r=>r.pct>=90?'rgba(16,185,129,.8)':r.pct>=75?'rgba(37,99,235,.8)':r.pct>=60?'rgba(245,158,11,.8)':'rgba(239,68,68,.8)'),
-          borderRadius:6,maxBarThickness:30}]},
+          backgroundColor:top.map(r=>r.pct>=90?'#10b981':r.pct>=75?'#2563eb':r.pct>=60?'#f59e0b':'#ef4444'),
+          hoverBackgroundColor:top.map(r=>r.pct>=90?'#059669':r.pct>=75?'#1d4ed8':r.pct>=60?'#d97706':'#dc2626'),
+          borderRadius:6,maxBarThickness:28}]},
         options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,
-          plugins:{legend:{display:false}},scales:{x:{beginAtZero:true,max:100,ticks:{callback:v=>v+'%'}}}}});
+          plugins:{legend:{display:false},
+            tooltip:{backgroundColor:'#ffffff',titleColor:'#0f172a',bodyColor:'#334155',
+              borderColor:'#e2e8f0',borderWidth:1,padding:12,cornerRadius:12,boxPadding:5,usePointStyle:true,
+              titleFont:{size:13,weight:'700'},bodyFont:{size:12.5},
+              callbacks:{label:ctx=>' '+ctx.parsed.x+'%'}}},
+          scales:{x:{beginAtZero:true,max:100,ticks:{callback:v=>v+'%',color:'#94a3b8',font:{size:11},padding:8},grid:{color:'#f1f5f9'},border:{display:false}},
+                  y:{grid:{display:false},border:{display:false},ticks:{color:'#64748b',font:{size:11}}}}}});
     }
     animateCounters(body);
   }
@@ -3141,10 +3308,9 @@ App.routes['#/settings'] = async (el)=>{
   const V_ICO_BELL='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M10.3 21a2 2 0 003.4 0"/></svg>';
   const V_ICO_LOG='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M8 6h13M8 12h13M8 18h13"/><circle cx="4" cy="6" r="1.2" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="4" cy="18" r="1.2" fill="currentColor" stroke="none"/></svg>';
   const V_ICO_SHIELD='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M12 3l7 3v5c0 5-3.5 8-7 9-3.5-1-7-4-7-9V6z"/><path d="M9.5 12l2 2 3.5-4"/></svg>';
+  const V_ICO_ZKT='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><rect x="5" y="3" width="14" height="18" rx="2.5"/><circle cx="12" cy="11" r="3.2"/><path d="M12 14.2v2.3M9.5 18.5h5"/></svg>';
+  const V_ICO_KEY='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><circle cx="8" cy="15" r="4.5"/><path d="M11.5 11.5L20 3m-3 3l3 3m-6 0l3 3"/></svg>';
   el.innerHTML=`
-  <div class="flex items-center gap-2 text-[13px] text-slate-400 mb-4 anim-fadeUp">
-    <span class="text-base">⌂</span><a href="#/dashboard" class="hover:text-slate-600">Dashboard</a><span>›</span><span class="text-slate-700 font-semibold">Settings</span>
-  </div>
   <div class="mb-6 anim-fadeUp"><h1 class="text-[26px] font-bold text-slate-900 tracking-tight">Settings</h1>
   <p class="text-sm text-slate-400 mt-1">Company profile, notifications and access control</p></div>
   <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
@@ -3158,13 +3324,12 @@ App.routes['#/settings'] = async (el)=>{
         <div id="${cid}-smtp"></div>
       </div>
       <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.04)] p-6">
-        <h3 class="font-bold text-slate-800 mb-1">ZKTeco biometric device</h3>
-        <p class="text-xs text-slate-400 mb-5">Connect a ZKTeco fingerprint/face device. Punches from the device appear in attendance automatically.</p>
+        ${vHead(V_ICO_ZKT,'ZKTeco biometric device','Connect a ZKTeco fingerprint/face device. Punches from the device appear in attendance automatically.')}
         <div id="${cid}-zkt"></div>
       </div>
       <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.04)] p-6">
-        <h3 class="font-bold text-slate-800 mb-1">Sign-in options</h3>
-        <div class="flex items-start gap-3 mt-4">
+        ${vHead(V_ICO_KEY,'Sign-in options','')}
+        <div class="flex items-start gap-3 mt-1">
           <div class="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold shrink-0">G</div>
           <div class="text-sm"><div class="font-semibold text-slate-700">Sign in with Google</div>
           <div class="text-slate-400 text-xs mt-1">In production, admins can link their Google Workspace account for one-click sign-in. Enable it from the Apps Script project settings, then toggle it here.</div></div>
@@ -3285,7 +3450,7 @@ App.routes['#/settings'] = async (el)=>{
 
   const bb=document.getElementById(cid+'-backup');
   if(bb) bb.onclick=async()=>{
-    bb.disabled=true; bb.innerHTML='<span class="spinner" style="border-color:rgba(13,148,136,.3);border-top-color:#0d9488"></span>';
+    bb.disabled=true; bb.innerHTML='<span class="spinner" style="border-color:rgba(15,23,42,.2);border-top-color:#0f172a"></span>';
     try{
       const r=await API.call('backupNow');
       document.getElementById(cid+'-backupMsg').innerHTML=`<span class="text-emerald-600 font-medium">✓ Backup created:</span> <span class="text-slate-600">${esc(r.name)}</span>`;
@@ -3313,12 +3478,12 @@ App.routes['#/settings'] = async (el)=>{
         <th class="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400">Module</th>
         ${roles.map(r=>`<th class="px-3 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wider text-slate-400 capitalize">${esc(r)}</th>`).join('')}
       </tr></thead><tbody class="divide-y divide-slate-50">
-      ${MODULES.map(([mk,ml])=>`<tr class="hover:bg-teal-50/40">
+      ${MODULES.map(([mk,ml])=>`<tr class="hover:bg-slate-50/70">
         <td class="px-3 py-2.5 font-medium text-slate-700">${ml}</td>
         ${roles.map(r=>{ const p=(perms[r]||{})[mk]||{};
           return `<td class="px-3 py-2.5 text-center">
-            <label class="inline-flex items-center gap-1 text-[11px] text-slate-500 mr-2"><input type="checkbox" data-r="${r}" data-m="${mk}" data-a="view" ${p.view?'checked':''} class="w-3.5 h-3.5 rounded accent-teal-600"> view</label>
-            <label class="inline-flex items-center gap-1 text-[11px] text-slate-500"><input type="checkbox" data-r="${r}" data-m="${mk}" data-a="edit" ${p.edit?'checked':''} class="w-3.5 h-3.5 rounded accent-teal-600"> edit</label>
+            <label class="inline-flex items-center gap-1 text-[11px] text-slate-500 mr-2"><input type="checkbox" data-r="${r}" data-m="${mk}" data-a="view" ${p.view?'checked':''} class="w-3.5 h-3.5 rounded accent-slate-900"> view</label>
+            <label class="inline-flex items-center gap-1 text-[11px] text-slate-500"><input type="checkbox" data-r="${r}" data-m="${mk}" data-a="edit" ${p.edit?'checked':''} class="w-3.5 h-3.5 rounded accent-slate-900"> edit</label>
           </td>`;}).join('')}
       </tr>`).join('')}
       </tbody></table></div>`;
@@ -3348,14 +3513,14 @@ App.nav.push({group:'SYSTEM', path:'#/tenants', label:I18N.t('c4.nav.tenants'), 
 /* ---------- Verola tokens (local copies) ---------- */
 function txTen(k, fb){ const v=I18N.t(k); return (v===k||!v)?fb:v; }
 function vTenAvatar(name){
-  const init=(String(name||'?').trim().split(/\s+/).map(w=>w[0]).join('')||'?').slice(0,2).toUpperCase();
-  return `<span class="w-8 h-8 rounded-full bg-slate-900 text-white text-[11px] font-bold inline-flex items-center justify-center shrink-0">${esc(init)}</span>`;
+  return avatar(name); /* global Verola avatar: light gray initials circle */
 }
 function vTenKpi(label, value, ico, sub){
   return `<div class="bg-white rounded-2xl border border-slate-200/70 p-5 shadow-[0_1px_3px_rgba(15,23,42,.04)]">
     <div class="flex items-center gap-2.5 mb-4">
       <span class="w-9 h-9 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center shrink-0">${ico}</span>
       <span class="text-[13px] text-slate-500 font-medium">${label}</span>
+      <span class="ml-auto w-7 h-7 rounded-lg bg-slate-50 border border-slate-100 text-slate-400 text-sm font-bold flex items-center justify-center shrink-0 select-none">···</span>
     </div>
     <div class="text-[26px] font-bold text-slate-900 tabular-nums tracking-tight">${value}</div>
     ${sub?`<div class="text-xs text-slate-400 mt-1.5">${sub}</div>`:''}
@@ -3380,24 +3545,18 @@ App.routes['#/tenants'] = async (el)=>{
       <div class="ml-auto"><button class="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold shadow active:scale-[.98] transition" id="${cid}-add">+ ${I18N.t('c4.ten.createTenant')}</button></div>
     </div>
     <div id="${cid}-stats" class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4 mb-5"></div>
-    <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.04)] overflow-hidden anim-fadeUp">
-      <div class="flex flex-wrap items-center gap-2.5 p-4 border-b border-slate-100">
-        <div class="relative flex-1 min-w-[180px] max-w-xs">
-          <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">⌕</span>
-          <input id="${cid}-q" placeholder="${I18N.t('c4.common.search')}..." class="w-full bg-white border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400 focus:outline-none">
-        </div>
-        <select id="${cid}-fStatus" class="bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 focus:outline-none">
-          <option value="all">▽ ${I18N.t('c4.common.all')}</option>
-          <option value="active">${I18N.t('c4.common.active')}</option>
-          <option value="trial">${I18N.t('c4.ten.trial')}</option>
-          <option value="suspended">Suspended</option>
-        </select>
+    <div class="flex flex-wrap items-center gap-2.5 mb-4 anim-fadeUp">
+      <div class="relative">
+        <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">⌕</span>
+        <input id="${cid}-q" placeholder="${I18N.t('c4.common.search')}..." class="bg-white border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 focus:border-slate-400 focus:outline-none transition w-56">
       </div>
-      <div id="${cid}-body"></div>
-    </div>`;
+      ${[['all',I18N.t('c4.common.all')],['active',I18N.t('c4.common.active')],['trial',I18N.t('c4.ten.trial')],['suspended','Suspended']].map(([v,l])=>
+        `<button data-tenf="${v}" class="px-4 py-2.5 rounded-xl text-sm font-medium transition border ${'all'===v?'bg-slate-900 text-white border-slate-900 shadow':'bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50'}">${l}</button>`).join('')}
+    </div>
+    <div id="${cid}-body"></div>`;
   const statsEl=document.getElementById(cid+'-stats');
   const body=document.getElementById(cid+'-body');
-  const st={q:'', f:'all', rows:[]};
+  const st={q:'', f:'all', rows:[], page:1, perPage:8};
 
   function planBadge(p){
     return p==='Growth'?badge(p,'teal'):p==='Enterprise'?badge(p,'blue'):badge(p||'Starter','slate');
@@ -3415,27 +3574,32 @@ App.routes['#/tenants'] = async (el)=>{
       if(st.f!=='all'&&t.status!==st.f) return false;
       return true;
     });
-    body.innerHTML=`<div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="border-b border-slate-100">
-      ${[I18N.t('c4.ten.colCompany'),I18N.t('c4.ten.colPlan'),I18N.t('c4.common.status'),I18N.t('c4.ten.colUsers'),I18N.t('c4.nav.employees'),I18N.t('c4.ten.colCreated')].map((h,i)=>
-        `<th class="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 whitespace-nowrap ${i>=3?'text-right':''}">${h}</th>`).join('')}
-      <th class="px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-slate-400">${txTen('c4.common.actions','')}</th></tr></thead>
-      <tbody class="divide-y divide-slate-50">${rows.length?rows.map(t=>`
-        <tr class="hover:bg-slate-50/70 transition-colors">
-          <td class="px-4 py-3"><div class="flex items-center gap-2.5">${vTenAvatar(t.companyName)}
-            <div><div class="font-medium text-slate-700 whitespace-nowrap">${esc(t.companyName)}</div>
-            <div class="text-xs text-slate-400 font-mono">${I18N.t('c4.ten.codeLabel')} ${esc(t.loginCode)}</div></div></div></td>
-          <td class="px-4 py-3">${planBadge(t.plan)}</td>
-          <td class="px-4 py-3">${statusBadge(t.status)}</td>
-          <td class="px-4 py-3 text-right tabular-nums font-medium text-slate-700">${fmtNum(t.users||0)}</td>
-          <td class="px-4 py-3 text-right tabular-nums font-medium text-slate-700">${fmtNum(t.employees||0)}</td>
-          <td class="px-4 py-3 text-right"><span class="tabular-nums text-slate-600">${fmtDate(t.createdAt)}</span></td>
-          <td class="px-4 py-3 text-right"><div class="flex gap-1.5 justify-end">
-            <button class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:border-slate-300 hover:bg-slate-50" data-imp="${t.tenantId}">${I18N.t('c4.ten.loginAs')}</button>
-            <button class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:border-slate-300 hover:bg-slate-50" data-edit="${t.tenantId}">${I18N.t('c4.common.edit')}</button>
-            <button class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-red-600 hover:border-red-200 hover:bg-red-50" data-del="${t.tenantId}">${I18N.t('c4.common.delete')}</button></div></td>
-        </tr>`).join(''):`<tr><td colspan="7" class="px-4 py-14 text-center"><div class="text-slate-300 text-3xl mb-2">◌</div><div class="text-sm text-slate-400">${I18N.t('c4.ten.emptyTenants')}</div></td></tr>`}
-      </tbody></table></div>
-      <div class="flex items-center px-4 py-3.5 border-t border-slate-100"><span class="text-xs text-slate-400">${txTen('c4.common.showingN','Showing {n} companies').replace('{n}',rows.length)}</span></div>`;
+    const total=rows.length;
+    const pages=Math.max(1,Math.ceil(total/st.perPage));
+    if(st.page>pages) st.page=pages;
+    const slice=rows.slice((st.page-1)*st.perPage, st.page*st.perPage);
+    body.innerHTML=tableHTML([
+      {label:I18N.t('c4.ten.colCompany'), get:t=>`<div class="flex items-center gap-2.5">${vTenAvatar(t.companyName)}
+        <div><div class="font-medium text-slate-700 whitespace-nowrap">${esc(t.companyName)}</div>
+        <div class="text-xs text-slate-400 font-mono">${I18N.t('c4.ten.codeLabel')} ${esc(t.loginCode)}</div></div></div>`},
+      {label:I18N.t('c4.ten.colPlan'), get:t=>planBadge(t.plan)},
+      {label:I18N.t('c4.common.status'), get:t=>statusBadge(t.status)},
+      {label:I18N.t('c4.ten.colUsers'), num:1, get:t=>`<span class="font-medium text-slate-700">${fmtNum(t.users||0)}</span>`},
+      {label:I18N.t('c4.nav.employees'), num:1, get:t=>`<span class="font-medium text-slate-700">${fmtNum(t.employees||0)}</span>`},
+      {label:I18N.t('c4.ten.colCreated'), num:1, get:t=>`<span class="text-slate-600">${fmtDate(t.createdAt)}</span>`},
+      {label:'', nosort:1, get:t=>`<div class="flex gap-1.5 justify-end">
+        <button class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:border-slate-300 hover:bg-slate-50" data-imp="${t.tenantId}">${I18N.t('c4.ten.loginAs')}</button>
+        <button class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:border-slate-300 hover:bg-slate-50" data-edit="${t.tenantId}">${I18N.t('c4.common.edit')}</button>
+        <button class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-red-600 hover:border-red-200 hover:bg-red-50" data-del="${t.tenantId}">${I18N.t('c4.common.delete')}</button></div>`},
+    ], slice, {empty:I18N.t('c4.ten.emptyTenants'), checkbox:true,
+      pagination:vPaginationHTML(total, st.page, st.perPage)});
+    vPaginateBind(body, (p, v)=>{
+      if(p==='prev') st.page=Math.max(1,st.page-1);
+      else if(p==='next') st.page=Math.min(pages,st.page+1);
+      else if(p==='per'){ st.perPage=v; st.page=1; }
+      else st.page=p;
+      render();
+    });
     body.querySelectorAll('[data-imp]').forEach(b=>b.onclick=async()=>{
       const r=await API.call('impersonate',b.dataset.imp);
       Session.savedUser=Session.user;
@@ -3499,8 +3663,15 @@ App.routes['#/tenants'] = async (el)=>{
       m.close(); toast(I18N.t('c4.ten.tenantCreated').replace('{company}',d.companyName).replace('{code}',t.loginCode),'success'); load();
     };
   };
-  document.getElementById(cid+'-q').oninput=debounce(e=>{ st.q=e.target.value; render(); },300);
-  document.getElementById(cid+'-fStatus').onchange=e=>{ st.f=e.target.value; render(); };
+  document.getElementById(cid+'-q').oninput=debounce(e=>{ st.q=e.target.value; st.page=1; render(); },300);
+  el.querySelectorAll('[data-tenf]').forEach(b=>b.onclick=()=>{
+    st.f=b.dataset.tenf; st.page=1;
+    el.querySelectorAll('[data-tenf]').forEach(x=>{
+      const on=x.dataset.tenf===st.f;
+      x.className=`px-4 py-2.5 rounded-xl text-sm font-medium transition border ${on?'bg-slate-900 text-white border-slate-900 shadow':'bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50'}`;
+    });
+    render();
+  });
   await load();
 };
 })();
@@ -3769,18 +3940,15 @@ if (typeof App !== 'undefined' && App.nav){
     var employees = await API.call('listEmployees').catch(function(){ return []; });
     var active = (employees || []).filter(function(e){ return e.active; });
     var opts = active.map(function(e){ return { value: e.id, label: e.name + ' (' + e.code + ')' }; });
-    var vCrumb = '<div class="flex items-center gap-2 text-[13px] text-slate-400 mb-4 anim-fadeUp">' +
-      '<span class="text-base">⌂</span><a href="#/dashboard" class="hover:text-slate-600">Dashboard</a><span>›</span>' +
-      '<span class="text-slate-700 font-semibold">' + esc(I18N.t('t1.title')) + '</span></div>' +
-      '<div class="mb-6 anim-fadeUp"><h1 class="text-[26px] font-bold text-slate-900 tracking-tight">' + esc(I18N.t('t1.title')) + '</h1>' +
+    var vTitle = '<div class="mb-6 anim-fadeUp"><h1 class="text-[26px] font-bold text-slate-900 tracking-tight">' + esc(I18N.t('t1.title')) + '</h1>' +
       '<p class="text-sm text-slate-400 mt-1">' + esc(I18N.t('t1.subtitle')) + '</p></div>';
     var vStepHead = function(n, title){
       var clean = String(title || '').replace(/^\d+\s*[·•]\s*/, '');
       return '<div class="flex items-center gap-2.5 mb-4">' +
-        '<span class="w-6 h-6 rounded-full bg-teal-600 text-white text-[11px] font-bold flex items-center justify-center shrink-0">' + n + '</span>' +
+        '<span class="w-6 h-6 rounded-full bg-slate-900 text-white text-[11px] font-bold flex items-center justify-center shrink-0">' + n + '</span>' +
         '<h3 class="font-bold text-slate-800">' + esc(clean) + '</h3></div>';
     };
-    el.innerHTML = vCrumb + '\n' +
+    el.innerHTML = vTitle + '\n' +
     '<div class="grid grid-cols-1 lg:grid-cols-2 gap-4 max-w-5xl">' +
       '<div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.04)] p-6 anim-fadeUp">' +
         vStepHead(1, I18N.t('t1.step1')) +
@@ -3843,10 +4011,12 @@ if (typeof App !== 'undefined' && App.nav){
     }
     function refreshSamples(){
       var box = $('samples');
-      box.innerHTML = esc(I18N.t('t1.samples')) + ': ' + state.samples.length + ' / ' + MAX_SAMPLES +
-        (state.samples.length ? ' (' + state.samples.map(function(_, i){
+      var list = state.samples.length ? ' <span class="text-slate-400">(' + state.samples.map(function(_, i){
             return esc(I18N.t('t1.sampleN')) + ' ' + (i + 1);
-          }).join(', ') + ')' : '');
+          }).join(', ') + ')</span>' : '';
+      box.innerHTML = '<span class="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full ' +
+        (state.samples.length ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500') + '">' +
+        esc(I18N.t('t1.samples')) + ': ' + state.samples.length + ' / ' + MAX_SAMPLES + '</span>' + list;
       $('save').disabled = !(state.empId && state.samples.length);
     }
 
@@ -4516,7 +4686,7 @@ const Alerts = {
       </div>
       <div class="grid grid-cols-2 gap-2.5">
         ${[['alert_late','t3.evLate'],['alert_absent','t3.evAbsent'],['alert_leave_decision','t3.evLeave'],['alert_out_of_zone','t3.evZone'],['alert_checkin','Check-in (Slack)'],['alert_checkout','Check-out (Slack)']]
-          .map(([k,l])=>`<label class="flex items-center gap-2.5 text-sm text-slate-600 cursor-pointer bg-slate-50 hover:bg-slate-100 border border-slate-200/60 rounded-xl px-3.5 py-2.5 transition"><input type="checkbox" name="${k}" ${on(s[k])?'checked':''} ${dis} class="w-4 h-4 rounded accent-teal-600 shrink-0"> ${l.startsWith('t3.')?T(l):l}</label>`).join('')}
+          .map(([k,l])=>`<label class="flex items-center gap-2.5 text-sm text-slate-600 cursor-pointer bg-slate-50 hover:bg-slate-100 border border-slate-200/60 rounded-xl px-3.5 py-2.5 transition"><input type="checkbox" name="${k}" ${on(s[k])?'checked':''} ${dis} class="w-4 h-4 rounded accent-slate-900 shrink-0"> ${l.startsWith('t3.')?T(l):l}</label>`).join('')}
       </div>
       <div class="mt-4 max-w-[220px]">${field(T('t3.grace'),'absence_grace_minutes',{type:'number',min:0,value:s.absence_grace_minutes||60})}</div>
       <p class="text-[11px] text-slate-400 mt-1">${T('t3.graceHint')}</p>
@@ -4885,14 +5055,14 @@ function t6Editor(cid, r, canEdit){
     </label>`;
   }
   if(r.options && r.options.length){
-    return `<select id="${cid}-${base}" data-key="${esc(r.key)}" class="w-44 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 bg-white focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none"${dis}>
+    return `<select id="${cid}-${base}" data-key="${esc(r.key)}" class="w-44 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 bg-white focus:border-slate-400 focus:ring-2 focus:ring-slate-900/10 outline-none"${dis}>
       ${r.options.map(o=>`<option value="${esc(o)}"${String(r.value)===o?' selected':''}>${esc(o)}</option>`).join('')}
     </select>`;
   }
   if(r.valueType === 'time'){
-    return `<input type="time" id="${cid}-${base}" data-key="${esc(r.key)}" value="${esc(r.value||'')}" class="w-44 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 bg-white focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none"${dis}>`;
+    return `<input type="time" id="${cid}-${base}" data-key="${esc(r.key)}" value="${esc(r.value||'')}" class="w-44 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 bg-white focus:border-slate-400 focus:ring-2 focus:ring-slate-900/10 outline-none"${dis}>`;
   }
-  return `<input type="number" id="${cid}-${base}" data-key="${esc(r.key)}" value="${esc(r.value)}"${r.valueType==='int'?' step="1"':''} class="w-44 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 bg-white focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none"${dis}>`;
+  return `<input type="number" id="${cid}-${base}" data-key="${esc(r.key)}" value="${esc(r.value)}"${r.valueType==='int'?' step="1"':''} class="w-44 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 bg-white focus:border-slate-400 focus:ring-2 focus:ring-slate-900/10 outline-none"${dis}>`;
 }
 
 App.routes['#/rules'] = async (el)=>{
@@ -5006,14 +5176,18 @@ App.nav.push({group:'MAIN', path:'#/dashboard', label:I18N.t('c4.nav.dashboard')
 function dPct(cur, prev){ cur=Number(cur)||0; prev=Number(prev)||0;
   if(!prev) return null; return (cur-prev)/Math.abs(prev)*100; }
 function dKpi(label, value, raw, pct, sub, ico){
-  const up=(pct||0)>=0, arrow=up?'▲':'▼', col=up?'text-emerald-600':'text-red-500';
+  const up=(pct||0)>=0, arrow=up?'↗':'↘';
+  const pill=up
+    ?'bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100'
+    :'bg-red-50 text-red-600 ring-1 ring-red-100';
   const tr=(pct==null||!isFinite(pct))
     ?`<span class="text-slate-400">${esc(sub||'')}</span>`
-    :`<span class="${col} font-semibold">${arrow} ${Math.abs(pct).toFixed(1)}%</span> <span class="ml-1 text-slate-400">vs last week</span>`;
+    :`<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold ${pill}">${arrow} ${Math.abs(pct).toFixed(1)}%</span> <span class="ml-1.5 text-slate-400">vs last week</span>`;
   return `<div class="bg-white rounded-2xl border border-slate-200/70 p-5 shadow-[0_1px_3px_rgba(15,23,42,.04)]">
     <div class="flex items-center gap-2.5 mb-4">
       <span class="w-9 h-9 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center shrink-0">${ico}</span>
       <span class="text-[13px] text-slate-500 font-medium">${label}</span>
+      <span class="ml-auto w-7 h-7 rounded-lg bg-slate-50 border border-slate-100 text-slate-400 text-sm font-bold flex items-center justify-center shrink-0 select-none">···</span>
     </div>
     <div class="text-[26px] font-bold text-slate-900 tabular-nums tracking-tight" data-countup="${raw}">${value}</div>
     <div class="text-xs mt-1.5">${tr}</div>
@@ -5045,18 +5219,23 @@ function drawPresence(canvasId, trend, days){
   if(!c || typeof Chart==='undefined') return;
   if(c._chart) c._chart.destroy();
   const pts=(trend||[]).slice(-days);
+  const vHover={id:'vHoverLine',afterDraw(ch){try{const a=ch.tooltip;if(!a||!a.getActiveElements)return;const ae=a.getActiveElements();if(!ae.length)return;const x=ae[0].element.x;const g=ch.ctx;g.save();g.setLineDash([5,5]);g.strokeStyle='#cbd5e1';g.lineWidth=1;g.beginPath();g.moveTo(x,ch.scales.y.top);g.lineTo(x,ch.scales.y.bottom);g.stroke();g.restore();}catch(e){}}};
   c._chart=new Chart(c,{
-    type:'line',
+    type:'line',plugins:[vHover],
     data:{labels:pts.map(p=>fmtDate(p.d).replace(/^0/,'')), datasets:[{
       label:I18N.t('c4.dash.chartPresent'), data:pts.map(p=>Number(p.present)||0),
       borderColor:'#1d4ed8', backgroundColor:'rgba(29,78,216,.08)', fill:true,
-      tension:.35, pointRadius:3, pointBackgroundColor:'#1d4ed8', borderWidth:2
+      tension:.4, pointRadius:0, pointHoverRadius:4.5, pointHoverBackgroundColor:'#1d4ed8',
+      pointHoverBorderColor:'#fff', pointHoverBorderWidth:2, borderWidth:2.2
     }]},
-    options:{responsive:true, maintainAspectRatio:false,
+    options:{responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
       plugins:{legend:{display:false},
-        tooltip:{callbacks:{label:ctx=>' '+fmtNum(ctx.parsed.y)+' '+I18N.t('c4.dash.chartPresent').toLowerCase()}}},
-      scales:{y:{beginAtZero:true, ticks:{precision:0, color:'#94a3b8', font:{size:11}}, grid:{color:'#f1f5f9'}},
-              x:{grid:{display:false}, ticks:{color:'#94a3b8', font:{size:11}}}}}
+        tooltip:{backgroundColor:'#ffffff',titleColor:'#0f172a',bodyColor:'#334155',
+          borderColor:'#e2e8f0',borderWidth:1,padding:12,cornerRadius:12,boxPadding:5,usePointStyle:true,
+          titleFont:{size:13,weight:'700'},bodyFont:{size:12.5},
+          callbacks:{label:ctx=>' '+fmtNum(ctx.parsed.y)+' '+I18N.t('c4.dash.chartPresent').toLowerCase()}}},
+      scales:{y:{beginAtZero:true, ticks:{precision:0, color:'#94a3b8', font:{size:11}, padding:8}, grid:{color:'#f1f5f9'}, border:{display:false}},
+              x:{grid:{display:false}, border:{display:false}, ticks:{color:'#94a3b8', font:{size:11}}}}}
   });
 }
 
@@ -5235,11 +5414,9 @@ App.routes['#/dashboard'] = async (el)=>{
 App.nav.push({group:'MAIN', path:'#/punch', label:I18N.t('c4.nav.punch'), labelKey:'c4.nav.punch', icon:'punch', perm:'punch'});
 
 /* Verola tokens (local) */
-const vBtnB='px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold shadow active:scale-[.98] transition';
 const vCard='bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.04)] p-6 anim-fadeUp';
 function vHead(title, actions){
-  return `<div class="flex items-center gap-2 text-[13px] text-slate-400 mb-4 anim-fadeUp"><span class="text-base">⌂</span><a href="#/dashboard" class="hover:text-slate-600">${I18N.t('c4.nav.dashboard')}</a><span>›</span><span class="text-slate-700 font-semibold">${title}</span></div>
-  <div class="flex flex-wrap items-center justify-between gap-3 mb-5 anim-fadeUp"><div><h1 class="font-display text-[26px] font-bold text-slate-800 tracking-tight">${title}</h1><p class="text-sm text-slate-400 mt-1">${I18N.t('c4.punch.sub')}</p></div><div class="flex gap-2 flex-wrap items-center">${actions||''}</div></div>`;
+  return `<div class="flex flex-wrap items-center justify-between gap-3 mb-5 anim-fadeUp"><div><h1 class="font-display text-[26px] font-bold text-slate-900 tracking-tight">${title}</h1><p class="text-sm text-slate-400 mt-1">${I18N.t('c4.punch.sub')}</p></div><div class="flex gap-2 flex-wrap items-center">${actions||''}</div></div>`;
 }
 
 const QKEY='ams_queue', LKEY='ams_lastpunch';
@@ -5324,8 +5501,8 @@ App.routes['#/punch'] = async (el)=>{
         <div class="text-sm"><div class="font-semibold text-emerald-600">${I18N.t('c4.punch.selfieCaptured')}</div><div class="text-slate-400 text-xs">${I18N.t('c4.punch.selfieCompressed')}</div></div>
       </div>
       <div class="grid grid-cols-2 gap-3">
-        <button id="${cid}-in" class="py-4 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-lg shadow active:scale-[.98] transition disabled:opacity-50">${I18N.t('c4.punch.checkInBtn')}</button>
-        <button id="${cid}-out" class="py-4 rounded-2xl bg-white border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-slate-700 font-bold text-lg shadow-sm active:scale-[.98] transition disabled:opacity-50">${I18N.t('c4.punch.checkOutBtn')}</button>
+        <button id="${cid}-in" class="py-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-lg shadow active:scale-[.98] transition disabled:opacity-50">${I18N.t('c4.punch.checkInBtn')}</button>
+        <button id="${cid}-out" class="py-4 rounded-xl bg-white border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-slate-700 font-bold text-lg shadow-sm active:scale-[.98] transition disabled:opacity-50">${I18N.t('c4.punch.checkOutBtn')}</button>
       </div>
       <div id="${cid}-msg" class="mt-4"></div>
     </div>
@@ -5456,155 +5633,218 @@ App.routes['#/punch'] = async (el)=>{
 
 /* ===== 40_employees.js ===== */
 /* 40_employees.js — employee table, add/edit modal, device bind/unbind,
-   CSV import, departments tab. Verola premium styling. */
+   CSV import, departments tab. Verola premium styling (pixel-perfect). */
 (function(){
 'use strict';
 
 App.nav.push({group:'WORKFORCE', path:'#/employees', label:I18N.t('c4.nav.employees'), labelKey:'c4.nav.employees', icon:'employees', perm:'employees'});
 
-/* Verola tokens (local) */
-const vBtnB='px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold shadow active:scale-[.98] transition';
-const vBtnBs='px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold active:scale-[.98] transition';
-const vBtnSx='px-3 py-1.5 rounded-xl bg-white border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-xs font-semibold text-slate-600 active:scale-[.98] transition shadow-sm';
-function vHead(title, actions){
-  return `<div class="flex items-center gap-2 text-[13px] text-slate-400 mb-4 anim-fadeUp"><span class="text-base">⌂</span><a href="#/dashboard" class="hover:text-slate-600">${I18N.t('c4.nav.dashboard')||'Dashboard'}</a><span>›</span><span class="text-slate-700 font-semibold">${title}</span></div>
-  <div class="flex flex-wrap items-center justify-between gap-3 mb-5 anim-fadeUp"><div><h1 class="font-display text-[26px] font-bold text-slate-800 tracking-tight">${title}</h1><p class="text-sm text-slate-400 mt-1">${I18N.t('c4.emp.sub')}</p></div><div class="flex gap-2 flex-wrap">${actions||''}</div></div>`;
-}
-function vAvatar(name){
-  const init=(String(name||'?').trim().split(/\s+/).map(w=>w[0]).join('')||'?').slice(0,2).toUpperCase();
-  return `<span class="w-8 h-8 rounded-full bg-slate-200 text-slate-500 text-[11px] font-bold inline-flex items-center justify-center shrink-0">${esc(init)}</span>`;
-}
-function vBadge(ok, yesTxt, noTxt){
-  return ok
-    ?`<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 whitespace-nowrap"><span class="text-[10px]">✓</span>${yesTxt}</span>`
-    :`<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-500 ring-1 ring-slate-200 whitespace-nowrap"><span class="text-[10px]">–</span>${noTxt}</span>`;
-}
-function vSearch(cid, ph){
-  return `<div class="relative w-full max-w-sm mb-4"><span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">⌕</span><input id="${cid}-q" placeholder="${ph}" class="w-full bg-white border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400 focus:outline-none"></div>`;
-}
-const vTab=(href,label,on)=>`<a href="${href}" class="px-4 py-2 rounded-xl text-sm font-semibold transition ${on?'bg-slate-900 text-white shadow':'bg-white text-slate-500 border border-slate-200 hover:border-slate-300'}">${label}</a>`;
+/* one-time document click closes any open "..." menus */
+if(!window._vactDocBound){ window._vactDocBound=true; document.addEventListener('click', ()=>{ document.querySelectorAll('.vact-menu').forEach(m=>m.remove()); }); }
+function closeVactMenus(){ document.querySelectorAll('.vact-menu').forEach(m=>m.remove()); }
+
+const SEARCH_SVG='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" class="w-4 h-4"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>';
 
 App.routes['#/employees'] = async (el, params)=>{
   const cid=uid('emp');
   const tab=(params&&params.tab)||'list';
-  el.innerHTML=vHead(I18N.t('c4.nav.employees'),
-    `${perm('employees','edit')?`<button class="${btnS}" id="${cid}-import">${I18N.t('c4.emp.importCsv')}</button><button class="${vBtnB}" id="${cid}-add">${I18N.t('c4.emp.addEmployee')}</button>`:''}`)+
+  const canEdit=perm('employees','edit');
+  const T=k=>I18N.t(k);
+  el.innerHTML=pageHead(T('c4.nav.employees'), T('c4.emp.sub'),
+    `${canEdit?`<button class="${btnS}" id="${cid}-import">${T('c4.emp.importCsv')}</button><button class="${btnP}" id="${cid}-add">${T('c4.emp.addEmployee')}</button>`:''}`)+
   `<div class="flex gap-2 mb-5">
-    ${vTab('#/employees',I18N.t('c4.emp.tabEmployees'),tab==='list')}
-    ${vTab('#/employees?tab=departments',I18N.t('c4.emp.tabDepartments'),tab==='departments')}
+    <a href="#/employees" class="px-4 py-2 rounded-xl text-sm font-semibold transition ${tab==='list'?'bg-slate-900 text-white shadow':'bg-white text-slate-500 border border-slate-200 hover:border-slate-300'}">${T('c4.emp.tabEmployees')}</a>
+    <a href="#/employees?tab=departments" class="px-4 py-2 rounded-xl text-sm font-semibold transition ${tab==='departments'?'bg-slate-900 text-white shadow':'bg-white text-slate-500 border border-slate-200 hover:border-slate-300'}">${T('c4.emp.tabDepartments')}</a>
   </div>
-  ${vSearch(cid, I18N.t('c4.emp.searchPh'))}
+  <div id="${cid}-filters"></div>
   <div id="${cid}-body"></div>`;
 
   const body=document.getElementById(cid+'-body');
+  const filtersEl=document.getElementById(cid+'-filters');
   let emps=[], depts=[];
+  let q='', statusF='all', deptF='all', page=1, filteredTotal=0;
+  const PER=10;
+
   async function load(){
     emps=await API.call('listEmployees');
     depts=await API.call('listDepartments');
+    renderFilters();
     render();
   }
+
+  /* Verola filter row: search + status pills + department pill-select */
+  function renderFilters(){
+    if(tab!=='list'){ filtersEl.innerHTML=''; return; }
+    const pills=[['all',T('c4.emp.allStatus')||'All Status'],['active',T('c4.common.active')],['inactive',T('c4.common.inactive')]];
+    filtersEl.innerHTML=`<div class="flex flex-wrap items-center gap-2.5 mb-4 anim-fadeUp">
+      <div class="relative">
+        <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">${SEARCH_SVG}</span>
+        <input id="${cid}-q" placeholder="${esc(T('c4.emp.searchPh'))}" value="${esc(q)}" class="bg-white border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 focus:border-slate-400 focus:outline-none transition w-56">
+      </div>
+      ${pills.map(([k,l])=>`<button data-sf="${k}" class="px-4 py-2.5 rounded-xl text-sm font-medium transition ${statusF===k?'bg-slate-900 text-white shadow':'bg-white border border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50'}">${esc(l)}</button>`).join('')}
+      <select id="${cid}-deptF" class="px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-sm font-medium text-slate-600 hover:border-slate-300 focus:border-slate-400 focus:outline-none cursor-pointer transition">
+        <option value="all">${esc(T('c4.emp.allDepts')||'All Departments')}</option>
+        ${depts.map(d=>`<option value="${esc(d.id)}" ${deptF===d.id?'selected':''}>${esc(d.name)}</option>`).join('')}
+      </select>
+    </div>`;
+    const qi=filtersEl.querySelector('#'+cid+'-q');
+    qi.addEventListener('input', debounce(()=>{ q=qi.value; page=1; render(); },200));
+    filtersEl.querySelectorAll('[data-sf]').forEach(b=>b.onclick=()=>{
+      statusF=b.dataset.sf; page=1;
+      filtersEl.querySelectorAll('[data-sf]').forEach(x=>{
+        const on=x.dataset.sf===statusF;
+        x.className=`px-4 py-2.5 rounded-xl text-sm font-medium transition ${on?'bg-slate-900 text-white shadow':'bg-white border border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50'}`;
+      });
+      render();
+    });
+    filtersEl.querySelector('#'+cid+'-deptF').onchange=e=>{ deptF=e.target.value; page=1; render(); };
+  }
+
+  function filtered(){
+    const ql=q.toLowerCase();
+    return emps.filter(e=>
+      (statusF==='all' || (statusF==='active'?e.active:!e.active)) &&
+      (deptF==='all' || e.departmentId===deptF) &&
+      (e.name+' '+e.code+' '+(e.phone||'')).toLowerCase().includes(ql)
+    );
+  }
+
   function render(){
-    const q=(document.getElementById(cid+'-q').value||'').toLowerCase();
-    if(tab==='departments'){
-      body.innerHTML=(perm('employees','edit')?`<div class="flex justify-end mb-3"><button class="${vBtnB}" id="${cid}-addDept">${I18N.t('c4.emp.addDept')}</button></div>`:'')+tableHTML([
-        {label:I18N.t('c4.emp.colDepartment'), get:d=>`<div class="flex items-center gap-3">${vAvatar(d.name)}<span class="font-semibold text-slate-700">${esc(d.name)}</span></div>`},
-        {label:I18N.t('c4.emp.colHeadcount'), num:1, get:d=>fmtNum(d.headcount)},
-        {label:'', get:d=>perm('employees','edit')?`<div class="flex gap-1 justify-end"><button class="${vBtnSx}" data-ed="${d.id}">${I18N.t('c4.common.edit')}</button><button class="${vBtnSx} !text-red-600" data-del="${d.id}">${I18N.t('c4.common.delete')}</button></div>`:''},
-      ], depts.filter(d=>d.name.toLowerCase().includes(q)), {empty:I18N.t('c4.emp.emptyDepts')});
-      if(perm('employees','edit')){
-        const addD=document.getElementById(cid+'-addDept');
-        if(addD) addD.onclick=()=>{
-          const m=modal(I18N.t('c4.emp.addDeptTitle'), `${field(I18N.t('c4.emp.deptName'),'name',{req:true})}<div class="flex justify-end gap-2 mt-5"><button class="${btnS}" id="dCancel">${I18N.t('c4.common.cancel')}</button><button class="${vBtnB}" id="dSave">${I18N.t('c4.common.save')}</button></div>`);
-          m.el.querySelector('#dCancel').onclick=()=>m.close();
-          m.el.querySelector('#dSave').onclick=async()=>{ const nm=formVal(m.el,'name'); if(!nm){toast(I18N.t('c4.emp.nameRequired'),'warn');return;} await API.call('saveDepartment',{name:nm}); m.close(); toast(I18N.t('c4.emp.deptSaved'),'success'); load(); };
-        };
-        body.querySelectorAll('[data-ed]').forEach(b=>b.onclick=async()=>{
-          const d=depts.find(x=>x.id===b.dataset.ed);
-          const m=modal(I18N.t('c4.emp.editDeptTitle'), `${field(I18N.t('c4.emp.deptName'),'name',{value:d.name,req:true})}<div class="flex justify-end gap-2 mt-5"><button class="${btnS}" id="dCancel">${I18N.t('c4.common.cancel')}</button><button class="${vBtnB}" id="dSave">${I18N.t('c4.common.save')}</button></div>`);
-          m.el.querySelector('#dCancel').onclick=()=>m.close();
-          m.el.querySelector('#dSave').onclick=async()=>{ await API.call('saveDepartment',{id:d.id,name:formVal(m.el,'name')}); m.close(); toast(I18N.t('c4.emp.deptSaved'),'success'); load(); };
-        });
-        body.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{
-          if(!await confirmDlg(I18N.t('c4.emp.delDeptTitle'),I18N.t('c4.emp.cannotUndo'),I18N.t('c4.common.delete'))) return;
-          try{ await API.call('deleteDepartment',b.dataset.del); toast(I18N.t('c4.emp.deleted'),'success'); load(); }catch(e){ toast(e.message,'error'); }
-        });
-      }
-      return;
-    }
-    const rows=emps.filter(e=>(e.name+' '+e.code+' '+(e.phone||'')).toLowerCase().includes(q));
+    if(tab==='departments'){ renderDepts(); return; }
+    const rows=filtered();
+    filteredTotal=rows.length;
+    const pages=Math.max(1, Math.ceil(filteredTotal/PER));
+    if(page>pages) page=pages;
+    const slice=rows.slice((page-1)*PER, page*PER);
     body.innerHTML=tableHTML([
-      {label:I18N.t('c4.emp.colEmployee'), get:e=>`<div class="flex items-center gap-3">${vAvatar(e.name)}<div><div class="font-semibold text-slate-700">${esc(e.name)}</div><div class="text-xs text-slate-400">${esc(e.code)} · ${esc(e.designation||'—')}</div></div></div>`},
-      {label:I18N.t('c4.emp.colDepartment'), get:e=>`<span class="text-slate-600">${esc(e.department||'—')}</span>`},
-      {label:I18N.t('c4.emp.colPhone'), get:e=>`<span class="text-slate-600">${esc(e.phone||'—')}</span>`},
-      {label:I18N.t('c4.emp.colSalary'), num:1, get:e=>`<span class="tabular-nums font-medium text-slate-700">${fmt(e.salary)}</span>`},
-      {label:I18N.t('c4.emp.colDevice'), get:e=>e.deviceId?`<span class="font-mono text-xs bg-slate-100 px-2 py-1 rounded-lg text-slate-600">${esc(e.deviceId)}</span>`:'<span class="text-slate-300 text-xs">'+I18N.t('c4.emp.notBound')+'</span>'},
-      {label:I18N.t('c4.common.status'), get:e=>vBadge(e.active, I18N.t('c4.common.active'), I18N.t('c4.common.inactive'))},
-      {label:'', get:e=>perm('employees','edit')?`<div class="flex gap-1 justify-end">
-        <button class="${vBtnSx}" data-edit="${e.id}">${I18N.t('c4.common.edit')}</button>
-        <button class="${vBtnSx}" data-dev="${e.id}">${e.deviceId?I18N.t('c4.common.unbind'):I18N.t('c4.common.bind')}</button>
-        <button class="${vBtnSx} !text-red-600" data-del="${e.id}">${I18N.t('c4.common.delete')}</button></div>`:''},
-    ], rows, {empty:I18N.t('c4.emp.emptyEmps')});
-    bindRow();
+      {label:T('c4.emp.colEmployee'), get:e=>`<div class="flex items-center gap-3">${avatar(e.name)}<div><div class="font-semibold text-slate-700">${esc(e.name)}</div><div class="text-xs text-slate-400">${esc(e.code)} · ${esc(e.designation||'—')}</div></div></div>`},
+      {label:T('c4.emp.colDepartment'), get:e=>`<span class="text-slate-600">${esc(e.department||'—')}</span>`},
+      {label:T('c4.emp.colPhone'), get:e=>`<span class="text-slate-600">${esc(e.phone||'—')}</span>`},
+      {label:T('c4.emp.colSalary'), num:1, get:e=>`<span class="tabular-nums font-medium text-slate-700">${fmt(e.salary)}</span>`},
+      {label:T('c4.emp.colDevice'), get:e=>e.deviceId?`<span class="font-mono text-xs bg-slate-100 px-2 py-1 rounded-lg text-slate-600">${esc(e.deviceId)}</span>`:'<span class="text-slate-300 text-xs">'+T('c4.emp.notBound')+'</span>'},
+      {label:T('c4.common.status'), get:e=>badge(e.active?T('c4.common.active'):T('c4.common.inactive'), e.active?'emerald':'slate')},
+      {label:'', get:e=>canEdit?`<div class="flex justify-end">${vActionsMenu().replace('data-vact','data-vact="'+esc(e.id)+'"')}</div>`:''},
+    ], slice, {empty:T('c4.emp.emptyEmps'), checkbox:true})+vPaginationHTML(filteredTotal, page, PER);
+    /* select-all */
+    const allCb=body.querySelector('[data-vcb-all]');
+    if(allCb) allCb.onchange=()=>{ body.querySelectorAll('[data-vcb]').forEach(c=>{ c.checked=allCb.checked; }); };
+    vPaginateBind(body, p=>{
+      if(p==='prev') page=Math.max(1,page-1);
+      else if(p==='next') page=Math.min(pages,page+1);
+      else if(typeof p==='number') page=p;
+      render();
+    });
+    bindActionMenus();
   }
-  function bindRow(){
-    body.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openEditor(emps.find(e=>e.id===b.dataset.edit)));
+
+  /* Verola "..." actions dropdown */
+  function bindActionMenus(){
+    body.querySelectorAll('[data-vact]').forEach(btn=>{
+      btn.onclick=ev=>{
+        ev.stopPropagation();
+        closeVactMenus();
+        const e=emps.find(x=>x.id===btn.dataset.vact);
+        if(!e) return;
+        const menu=document.createElement('div');
+        menu.className='vact-menu fixed z-50 bg-white border border-slate-200 rounded-xl shadow-lg py-1.5 min-w-[150px]';
+        menu.innerHTML=`
+          <button data-m="edit" class="w-full text-left px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 transition">${T('c4.common.edit')}</button>
+          <button data-m="dev" class="w-full text-left px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 transition">${e.deviceId?T('c4.common.unbind'):T('c4.common.bind')}</button>
+          <button data-m="del" class="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition">${T('c4.common.delete')}</button>`;
+        document.body.appendChild(menu);
+        const r=btn.getBoundingClientRect();
+        menu.style.top=Math.min(r.bottom+6, window.innerHeight-150)+'px';
+        menu.style.left=Math.max(8, Math.min(r.right-160, window.innerWidth-170))+'px';
+        menu.querySelector('[data-m="edit"]').onclick=()=>{ closeVactMenus(); openEditor(e); };
+        menu.querySelector('[data-m="dev"]').onclick=()=>{ closeVactMenus(); toggleDevice(e); };
+        menu.querySelector('[data-m="del"]').onclick=()=>{ closeVactMenus(); deleteEmp(e); };
+      };
+    });
+  }
+
+  async function deleteEmp(e){
+    if(!await confirmDlg(T('c4.emp.delEmpTitle'),T('c4.emp.delEmpMsg'),T('c4.common.delete'))) return;
+    await API.call('deleteEmployee',e.id); toast(T('c4.emp.empDeleted'),'success'); load();
+  }
+
+  async function toggleDevice(e){
+    if(e.deviceId){
+      await API.call('unbindDevice',e.id); toast(T('c4.emp.deviceUnbound'),'success'); load();
+    }else{
+      const m=modal(T('c4.emp.bindTitle'),`<p class="text-sm text-slate-500 mb-4">${T('c4.emp.bindMsg').replace('{name}',esc(e.name))}</p>
+        ${field(T('c4.emp.fDeviceId'),'deviceId',{ph:'ZK-1001',req:true})}
+        <div class="flex justify-end gap-2 mt-5"><button class="${btnS}" id="dCancel">${T('c4.common.cancel')}</button><button class="${btnP}" id="dSave">${T('c4.common.bind')}</button></div>`);
+      m.el.querySelector('#dCancel').onclick=()=>m.close();
+      m.el.querySelector('#dSave').onclick=async()=>{
+        await API.call('bindDevice',e.id,formVal(m.el,'deviceId')); m.close(); toast(T('c4.emp.deviceBound'),'success'); load();
+      };
+    }
+  }
+
+  function renderDepts(){
+    body.innerHTML=(canEdit?`<div class="flex justify-end mb-3"><button class="${btnP}" id="${cid}-addDept">${T('c4.emp.addDept')}</button></div>`:'')+tableHTML([
+      {label:T('c4.emp.colDepartment'), get:d=>`<div class="flex items-center gap-3">${avatar(d.name)}<span class="font-semibold text-slate-700">${esc(d.name)}</span></div>`},
+      {label:T('c4.emp.colHeadcount'), num:1, get:d=>fmtNum(d.headcount)},
+      {label:'', get:d=>canEdit?`<div class="flex gap-1 justify-end"><button class="${btnS} !px-3 !py-1.5 !text-xs" data-ed="${d.id}">${T('c4.common.edit')}</button><button class="${btnS} !px-3 !py-1.5 !text-xs !text-red-600" data-del="${d.id}">${T('c4.common.delete')}</button></div>`:''},
+    ], depts, {empty:T('c4.emp.emptyDepts')});
+    if(!canEdit) return;
+    const addD=document.getElementById(cid+'-addDept');
+    if(addD) addD.onclick=()=>{
+      const m=modal(T('c4.emp.addDeptTitle'), `${field(T('c4.emp.deptName'),'name',{req:true})}<div class="flex justify-end gap-2 mt-5"><button class="${btnS}" id="dCancel">${T('c4.common.cancel')}</button><button class="${btnP}" id="dSave">${T('c4.common.save')}</button></div>`);
+      m.el.querySelector('#dCancel').onclick=()=>m.close();
+      m.el.querySelector('#dSave').onclick=async()=>{ const nm=formVal(m.el,'name'); if(!nm){toast(T('c4.emp.nameRequired'),'warn');return;} await API.call('saveDepartment',{name:nm}); m.close(); toast(T('c4.emp.deptSaved'),'success'); load(); };
+    };
+    body.querySelectorAll('[data-ed]').forEach(b=>b.onclick=()=>{
+      const d=depts.find(x=>x.id===b.dataset.ed);
+      const m=modal(T('c4.emp.editDeptTitle'), `${field(T('c4.emp.deptName'),'name',{value:d.name,req:true})}<div class="flex justify-end gap-2 mt-5"><button class="${btnS}" id="dCancel">${T('c4.common.cancel')}</button><button class="${btnP}" id="dSave">${T('c4.common.save')}</button></div>`);
+      m.el.querySelector('#dCancel').onclick=()=>m.close();
+      m.el.querySelector('#dSave').onclick=async()=>{ await API.call('saveDepartment',{id:d.id,name:formVal(m.el,'name')}); m.close(); toast(T('c4.emp.deptSaved'),'success'); load(); };
+    });
     body.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{
-      if(!await confirmDlg(I18N.t('c4.emp.delEmpTitle'),I18N.t('c4.emp.delEmpMsg'),I18N.t('c4.common.delete'))) return;
-      await API.call('deleteEmployee',b.dataset.del); toast(I18N.t('c4.emp.empDeleted'),'success'); load();
-    });
-    body.querySelectorAll('[data-dev]').forEach(b=>b.onclick=async()=>{
-      const e=emps.find(x=>x.id===b.dataset.dev);
-      if(e.deviceId){
-        await API.call('unbindDevice',e.id); toast(I18N.t('c4.emp.deviceUnbound'),'success'); load();
-      }else{
-        const m=modal(I18N.t('c4.emp.bindTitle'),`<p class="text-sm text-slate-500 mb-4">${I18N.t('c4.emp.bindMsg').replace('{name}',esc(e.name))}</p>
-          ${field(I18N.t('c4.emp.fDeviceId'),'deviceId',{ph:'ZK-1001',req:true})}
-          <div class="flex justify-end gap-2 mt-5"><button class="${btnS}" id="dCancel">${I18N.t('c4.common.cancel')}</button><button class="${vBtnB}" id="dSave">${I18N.t('c4.common.bind')}</button></div>`);
-        m.el.querySelector('#dCancel').onclick=()=>m.close();
-        m.el.querySelector('#dSave').onclick=async()=>{
-          await API.call('bindDevice',e.id,formVal(m.el,'deviceId')); m.close(); toast(I18N.t('c4.emp.deviceBound'),'success'); load();
-        };
-      }
+      if(!await confirmDlg(T('c4.emp.delDeptTitle'),T('c4.emp.cannotUndo'),T('c4.common.delete'))) return;
+      try{ await API.call('deleteDepartment',b.dataset.del); toast(T('c4.emp.deleted'),'success'); load(); }catch(e2){ toast(e2.message,'error'); }
     });
   }
+
   function openEditor(e){
     const isNew=!e; e=e||{name:'',code:'',departmentId:'d1',designation:'',phone:'',email:'',salary:0,joinDate:todayISO(),active:true};
-    const m=modal(isNew?I18N.t('c4.emp.addEmpTitle'):I18N.t('c4.emp.editEmpTitle'),`
+    const m=modal(isNew?T('c4.emp.addEmpTitle'):T('c4.emp.editEmpTitle'),`
       <div class="flex items-center gap-4 mb-5 p-4 rounded-2xl bg-slate-50 border border-slate-200/60">
-        ${vAvatar(e.name||'?')}
-        <div><div class="font-bold text-slate-800">${isNew?I18N.t('c4.emp.addEmpTitle'):esc(e.name)}</div><div class="text-xs text-slate-400">${isNew?I18N.t('c4.emp.sub'):esc(e.code||'')}</div></div>
+        ${avatar(e.name||'?', 'w-11 h-11 text-sm')}
+        <div><div class="font-bold text-slate-800">${isNew?T('c4.emp.addEmpTitle'):esc(e.name)}</div><div class="text-xs text-slate-400">${isNew?T('c4.emp.sub'):esc(e.code||'')}</div></div>
       </div>
       <div class="grid grid-cols-2 gap-4">
-        ${field(I18N.t('c4.emp.fFullName'),'name',{value:e.name,req:true})}
-        ${field(I18N.t('c4.emp.fEmpCode'),'code',{value:e.code,ph:'EMP-011'})}
-        ${field(I18N.t('c4.emp.colDepartment'),'departmentId',{type:'select',value:e.departmentId,options:depts.map(d=>({value:d.id,label:d.name}))})}
-        ${field(I18N.t('c4.emp.fDesignation'),'designation',{value:e.designation||''})}
-        ${field(I18N.t('c4.emp.fPhone'),'phone',{value:e.phone||'',ph:'0300-0000000'})}
-        ${field(I18N.t('c4.emp.fEmail'),'email',{value:e.email||'',type:'email'})}
-        ${field(I18N.t('c4.emp.fSalary'),'salary',{value:e.salary||0,type:'number',min:0})}
-        ${field(I18N.t('c4.emp.fJoinDate'),'joinDate',{value:e.joinDate||todayISO(),type:'date'})}
-        <div class="col-span-2">${field(I18N.t('c4.emp.fActive'),'active',{type:'checkbox',value:e.active})}</div>
+        ${field(T('c4.emp.fFullName'),'name',{value:e.name,req:true})}
+        ${field(T('c4.emp.fEmpCode'),'code',{value:e.code,ph:'EMP-011'})}
+        ${field(T('c4.emp.colDepartment'),'departmentId',{type:'select',value:e.departmentId,options:depts.map(d=>({value:d.id,label:d.name}))})}
+        ${field(T('c4.emp.fDesignation'),'designation',{value:e.designation||''})}
+        ${field(T('c4.emp.fPhone'),'phone',{value:e.phone||'',ph:'0300-0000000'})}
+        ${field(T('c4.emp.fEmail'),'email',{value:e.email||'',type:'email'})}
+        ${field(T('c4.emp.fSalary'),'salary',{value:e.salary||0,type:'number',min:0})}
+        ${field(T('c4.emp.fJoinDate'),'joinDate',{value:e.joinDate||todayISO(),type:'date'})}
+        <div class="col-span-2">${field(T('c4.emp.fActive'),'active',{type:'checkbox',value:e.active})}</div>
       </div>
-      <div class="flex justify-end gap-2 mt-6"><button class="${btnS}" id="eCancel">${I18N.t('c4.common.cancel')}</button><button class="${vBtnB}" id="eSave">${I18N.t('c4.emp.saveEmployee')}</button></div>`,{wide:true});
+      <div class="flex justify-end gap-2 mt-6"><button class="${btnS}" id="eCancel">${T('c4.common.cancel')}</button><button class="${btnP}" id="eSave">${T('c4.emp.saveEmployee')}</button></div>`,{wide:true});
     m.el.querySelector('#eCancel').onclick=()=>m.close();
     m.el.querySelector('#eSave').onclick=async()=>{
       const data=collectForm(m.el);
-      if(!data.name){ toast(I18N.t('c4.emp.nameIsRequired'),'warn'); return; }
+      if(!data.name){ toast(T('c4.emp.nameIsRequired'),'warn'); return; }
       await API.call('saveEmployee',{...(isNew?{}:{id:e.id}),...data});
-      m.close(); toast(I18N.t('c4.emp.empSaved'),'success'); load();
+      m.close(); toast(T('c4.emp.empSaved'),'success'); load();
     };
   }
+
   const addB=document.getElementById(cid+'-add'); if(addB) addB.onclick=()=>openEditor(null);
   const impB=document.getElementById(cid+'-import');
   if(impB) impB.onclick=()=>{
-    const m=modal(I18N.t('c4.emp.importTitle'),`
-      <p class="text-sm text-slate-500 mb-3">${I18N.t('c4.emp.importHelp')}<code class="bg-slate-100 px-1 rounded">name,code,designation,phone,email,salary,joinDate</code></p>
+    const m=modal(T('c4.emp.importTitle'),`
+      <p class="text-sm text-slate-500 mb-3">${T('c4.emp.importHelp')}<code class="bg-slate-100 px-1 rounded">name,code,designation,phone,email,salary,joinDate</code></p>
       <input type="file" id="csvFile" accept=".csv" class="text-sm mb-4">
-      <div class="flex justify-end gap-2"><button class="${btnS}" id="iCancel">${I18N.t('c4.common.cancel')}</button><button class="${vBtnB}" id="iGo">${I18N.t('c4.common.import')}</button></div>`);
+      <div class="flex justify-end gap-2"><button class="${btnS}" id="iCancel">${T('c4.common.cancel')}</button><button class="${btnP}" id="iGo">${T('c4.common.import')}</button></div>`);
     m.el.querySelector('#iCancel').onclick=()=>m.close();
     m.el.querySelector('#iGo').onclick=()=>{
       const f=m.el.querySelector('#csvFile').files[0];
-      if(!f){ toast(I18N.t('c4.emp.chooseCsv'),'warn'); return; }
+      if(!f){ toast(T('c4.emp.chooseCsv'),'warn'); return; }
       const rd=new FileReader();
       rd.onload=async()=>{
         try{
@@ -5612,13 +5852,12 @@ App.routes['#/employees'] = async (el, params)=>{
           const heads=lines[0].split(',').map(h=>h.trim().toLowerCase());
           const rows=lines.slice(1).map(l=>{ const cells=l.split(','); const o={}; heads.forEach((h2,i)=>o[h2]=(cells[i]||'').trim()); return o; });
           const r=await API.call('importEmployeesCSV',rows);
-          m.close(); toast(I18N.t('c4.emp.importedN').replace('{n}',r.imported),'success'); load();
+          m.close(); toast(T('c4.emp.importedN').replace('{n}',r.imported),'success'); load();
         }catch(e2){ toast(e2.message,'error'); }
       };
       rd.readAsText(f);
     };
   };
-  document.getElementById(cid+'-q').addEventListener('input',debounce(render,200));
   await load();
 };
 })();
@@ -5633,41 +5872,39 @@ App.routes['#/employees'] = async (el, params)=>{
 
 App.nav.push({group:'WORKFORCE', path:'#/sites', label:I18N.t('c4.nav.sites'), labelKey:'c4.nav.sites', icon:'sites', perm:'sites'});
 
-/* Verola tokens (local) */
-const vBtnB='px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold shadow active:scale-[.98] transition';
-const vBtnSx='px-3 py-1.5 rounded-xl bg-white border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-xs font-semibold text-slate-600 active:scale-[.98] transition shadow-sm';
+/* Sites uses global Verola tokens: btnP, btnS, badge(), avatar(), tableHTML(), vFilterRow() from 00_utils.js */
 function vHead(title, sub, actions){
-  return `<div class="flex items-center gap-2 text-[13px] text-slate-400 mb-4 anim-fadeUp"><span class="text-base">⌂</span><a href="#/dashboard" class="hover:text-slate-600">${I18N.t('c4.nav.dashboard')}</a><span>›</span><span class="text-slate-700 font-semibold">${title}</span></div>
-  <div class="flex flex-wrap items-center justify-between gap-3 mb-5 anim-fadeUp"><div><h1 class="font-display text-[26px] font-bold text-slate-800 tracking-tight">${title}</h1><p class="text-sm text-slate-400 mt-1">${sub}</p></div><div class="flex gap-2 flex-wrap">${actions||''}</div></div>`;
-}
-function vBadge(ok, yesTxt, noTxt){
-  return ok
-    ?`<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 whitespace-nowrap"><span class="text-[10px]">✓</span>${yesTxt}</span>`
-    :`<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-500 ring-1 ring-slate-200 whitespace-nowrap"><span class="text-[10px]">–</span>${noTxt}</span>`;
+  return `<div class="flex flex-wrap items-center justify-between gap-3 mb-5 anim-fadeUp"><div><h1 class="font-display text-[26px] font-bold text-slate-900 tracking-tight">${title}</h1><p class="text-sm text-slate-400 mt-1">${sub}</p></div><div class="flex gap-2 flex-wrap">${actions||''}</div></div>`;
 }
 
 App.routes['#/sites'] = async (el)=>{
   const cid=uid('sites');
   el.innerHTML=vHead(I18N.t('c4.nav.sites'),I18N.t('c4.sites.sub'),
-    `${perm('sites','edit')?`<button class="${vBtnB}" id="${cid}-add">${I18N.t('c4.sites.addSite')}</button>`:''}`)+
+    `${perm('sites','edit')?`<button class="${btnP}" id="${cid}-add">${I18N.t('c4.sites.addSite')}</button>`:''}`)+
     `<div id="${cid}-body"></div>`;
   const body=document.getElementById(cid+'-body');
-  let sites=[], emps=[];
+  let sites=[], emps=[], q='';
   async function load(){
     sites=await API.call('listSites');
     emps=await API.call('listEmployees');
-    body.innerHTML=tableHTML([
-      {label:I18N.t('c4.sites.colSite'), get:s=>`<div class="flex items-center gap-3"><span class="w-8 h-8 rounded-full bg-slate-200 text-slate-500 text-[11px] font-bold inline-flex items-center justify-center shrink-0"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-3.5 h-3.5"><path d="M12 21s-7-5.5-7-11a7 7 0 0114 0c0 5.5-7 11-7 11z"/><circle cx="12" cy="10" r="2.6"/></svg></span><div><div class="font-semibold text-slate-700">${esc(s.name)}</div><div class="text-xs text-slate-400">${esc(s.address||'—')}</div></div></div>`},
+    render();
+  }
+  function render(){
+    const rows=sites.filter(s=>!q||(s.name+' '+(s.address||'')).toLowerCase().includes(q));
+    body.innerHTML=vFilterRow(I18N.t('c4.sites.searchPh'),[])+tableHTML([
+      {label:I18N.t('c4.sites.colSite'), get:s=>`<div class="flex items-center gap-3"><span class="w-8 h-8 rounded-full bg-slate-200 text-slate-500 inline-flex items-center justify-center shrink-0"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-3.5 h-3.5"><path d="M12 21s-7-5.5-7-11a7 7 0 0114 0c0 5.5-7 11-7 11z"/><circle cx="12" cy="10" r="2.6"/></svg></span><div><div class="font-semibold text-slate-700">${esc(s.name)}</div><div class="text-xs text-slate-400">${esc(s.address||'—')}</div></div></div>`},
       {label:I18N.t('c4.sites.colCoords'), get:s=>`<span class="font-mono text-xs text-slate-500">${Number(s.lat).toFixed(4)}, ${Number(s.lng).toFixed(4)}</span>`},
       {label:I18N.t('c4.sites.colGeofence'), num:1, get:s=>`<span class="tabular-nums text-slate-600">${fmtNum(s.radiusM)} m</span>`},
       {label:I18N.t('c4.sites.colStaff'), num:1, get:s=>`<span class="tabular-nums font-medium text-slate-700">${fmtNum(s.employeeCount||0)}</span>`},
-      {label:I18N.t('c4.common.status'), get:s=>vBadge(s.active, I18N.t('c4.common.active'), I18N.t('c4.common.inactive'))},
-      {label:'', get:s=>`<div class="flex gap-1 justify-end">
-        <button class="${vBtnSx}" data-map="${s.id}">${I18N.t('c4.sites.mapBtn')}</button>
-        ${perm('sites','edit')?`<button class="${vBtnSx}" data-assign="${s.id}">${I18N.t('c4.sites.assignStaff')}</button>
-        <button class="${vBtnSx}" data-edit="${s.id}">${I18N.t('c4.common.edit')}</button>
-        <button class="${vBtnSx} !text-red-600" data-del="${s.id}">${I18N.t('c4.common.delete')}</button>`:''}</div>`},
-    ], sites, {empty:I18N.t('c4.sites.emptySites')});
+      {label:I18N.t('c4.common.status'), get:s=>badge(s.active?I18N.t('c4.common.active'):I18N.t('c4.common.inactive'), s.active?'emerald':'slate')},
+      {label:'', nosort:1, get:s=>`<div class="flex gap-1 justify-end">
+        <button class="${btnS} !px-3 !py-1.5 !text-xs" data-map="${s.id}">${I18N.t('c4.sites.mapBtn')}</button>
+        ${perm('sites','edit')?`<button class="${btnS} !px-3 !py-1.5 !text-xs" data-assign="${s.id}">${I18N.t('c4.sites.assignStaff')}</button>
+        <button class="${btnS} !px-3 !py-1.5 !text-xs" data-edit="${s.id}">${I18N.t('c4.common.edit')}</button>
+        <button class="${btnS} !px-3 !py-1.5 !text-xs !text-red-600" data-del="${s.id}">${I18N.t('c4.common.delete')}</button>`:''}</div>`},
+    ], rows, {empty:I18N.t('c4.sites.emptySites')});
+    const si=body.querySelector('[data-vf-search]');
+    if(si){ si.value=q; si.oninput=debounce(()=>{ q=si.value.trim().toLowerCase(); render(); const nsi=body.querySelector('[data-vf-search]'); if(nsi){ nsi.focus(); nsi.setSelectionRange(nsi.value.length,nsi.value.length); } }); }
     body.querySelectorAll('[data-map]').forEach(b=>b.onclick=()=>openMapView(sites.find(s=>s.id===b.dataset.map)));
     body.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openEditor(sites.find(s=>s.id===b.dataset.edit)));
     body.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{
@@ -5710,7 +5947,7 @@ App.routes['#/sites'] = async (el)=>{
       </div>
       <div id="mapPick" class="h-64 rounded-2xl border border-slate-200/70 overflow-hidden mb-2"></div>
       <p class="text-xs text-slate-400 mb-4">${I18N.t('c4.sites.mapHint')}</p>
-      <div class="flex justify-end gap-2"><button class="${btnS}" id="sCancel">${I18N.t('c4.common.cancel')}</button><button class="${vBtnB}" id="sSave">${I18N.t('c4.sites.saveSite')}</button></div>`,{wide:true});
+      <div class="flex justify-end gap-2"><button class="${btnS}" id="sCancel">${I18N.t('c4.common.cancel')}</button><button class="${btnP}" id="sSave">${I18N.t('c4.sites.saveSite')}</button></div>`,{wide:true});
     const mapEl=m.el.querySelector('#mapPick');
     const map=buildMap(mapEl,[Number(s.lat),Number(s.lng)],14);
     let marker=null, circle=null;
@@ -5751,7 +5988,7 @@ App.routes['#/sites'] = async (el)=>{
           <span class="w-8 h-8 rounded-full bg-slate-200 text-slate-500 text-[11px] font-bold inline-flex items-center justify-center shrink-0">${esc((String(e.name||'?').trim().split(/\s+/).map(w=>w[0]).join('')||'?').slice(0,2).toUpperCase())}</span>
           <span class="text-sm font-medium text-slate-700">${esc(e.name)}</span><span class="text-xs text-slate-400 ml-auto">${esc(e.code)}</span></label>`).join('')}
       </div>
-      <div class="flex justify-end gap-2"><button class="${btnS}" id="aCancel">${I18N.t('c4.common.cancel')}</button><button class="${vBtnB}" id="aSave">${I18N.t('c4.sites.saveAssignments')}</button></div>`);
+      <div class="flex justify-end gap-2"><button class="${btnS}" id="aCancel">${I18N.t('c4.common.cancel')}</button><button class="${btnP}" id="aSave">${I18N.t('c4.sites.saveAssignments')}</button></div>`);
     m.el.querySelector('#aCancel').onclick=()=>m.close();
     m.el.querySelector('#aSave').onclick=async()=>{
       const ids=[...m.el.querySelectorAll('[name="emp"]:checked')].map(x=>x.value);
@@ -5773,24 +6010,17 @@ App.routes['#/sites'] = async (el)=>{
 
 App.nav.push({group:'WORKFORCE', path:'#/shifts', label:I18N.t('c4.nav.shifts'), labelKey:'c4.nav.shifts', icon:'shifts', perm:'shifts'});
 
-/* Verola tokens (local) */
-const vBtnB='px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold shadow active:scale-[.98] transition';
-const vBtnSx='px-3 py-1.5 rounded-xl bg-white border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-xs font-semibold text-slate-600 active:scale-[.98] transition shadow-sm';
+/* Shifts uses global Verola tokens: btnP, btnS, badge(), avatar(), tableHTML() from 00_utils.js */
 const vCard='bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.04)] p-6';
 function vHead(title, sub, actions){
-  return `<div class="flex items-center gap-2 text-[13px] text-slate-400 mb-4 anim-fadeUp"><span class="text-base">⌂</span><a href="#/dashboard" class="hover:text-slate-600">${I18N.t('c4.nav.dashboard')}</a><span>›</span><span class="text-slate-700 font-semibold">${title}</span></div>
-  <div class="flex flex-wrap items-center justify-between gap-3 mb-5 anim-fadeUp"><div><h1 class="font-display text-[26px] font-bold text-slate-800 tracking-tight">${title}</h1><p class="text-sm text-slate-400 mt-1">${sub}</p></div><div class="flex gap-2 flex-wrap">${actions||''}</div></div>`;
-}
-function vAvatar(name){
-  const init=(String(name||'?').trim().split(/\s+/).map(w=>w[0]).join('')||'?').slice(0,2).toUpperCase();
-  return `<span class="w-8 h-8 rounded-full bg-slate-200 text-slate-500 text-[11px] font-bold inline-flex items-center justify-center shrink-0">${esc(init)}</span>`;
+  return `<div class="flex flex-wrap items-center justify-between gap-3 mb-5 anim-fadeUp"><div><h1 class="font-display text-[26px] font-bold text-slate-900 tracking-tight">${title}</h1><p class="text-sm text-slate-400 mt-1">${sub}</p></div><div class="flex gap-2 flex-wrap">${actions||''}</div></div>`;
 }
 
 App.routes['#/shifts'] = async (el)=>{
   const cid=uid('shift');
   const canEdit=perm('shifts','edit');
   el.innerHTML=vHead(I18N.t('c4.nav.shifts'),I18N.t('c4.shifts.sub'),
-    `${canEdit?`<button class="${vBtnB}" id="${cid}-add">${I18N.t('c4.shifts.addShift')}</button>`:''}`)+`
+    `${canEdit?`<button class="${btnP}" id="${cid}-add">${I18N.t('c4.shifts.addShift')}</button>`:''}`)+`
   <div class="grid grid-cols-1 xl:grid-cols-3 gap-4">
     <div class="${vCard}">
       <h3 class="font-bold text-slate-800 text-[15px] mb-4">${I18N.t('c4.shifts.shiftTemplates')}</h3>
@@ -5819,7 +6049,7 @@ App.routes['#/shifts'] = async (el)=>{
         <div class="w-11 h-11 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center shrink-0">${App.ICONS.shifts}</div>
         <div class="flex-1 min-w-0"><div class="font-semibold text-slate-700 text-sm">${esc(s.name)}</div>
           <div class="text-xs text-slate-400 tabular-nums mt-0.5">${esc(s.startTime)} – ${esc(s.endTime)} · ${I18N.t('c4.shifts.graceN').replace('{n}',s.graceMin)}</div></div>
-        ${canEdit?`<div class="flex gap-1"><button class="${vBtnSx}" data-se="${s.id}">${I18N.t('c4.common.edit')}</button><button class="${vBtnSx} !text-red-600" data-sd="${s.id}">✕</button></div>`:''}
+        ${canEdit?`<div class="flex gap-1"><button class="${btnS} !px-3 !py-1.5 !text-xs" data-se="${s.id}">${I18N.t('c4.common.edit')}</button><button class="${btnS} !px-3 !py-1.5 !text-xs !text-red-600" data-sd="${s.id}">✕</button></div>`:''}
       </div>`).join('')||'<p class="text-sm text-slate-400 py-6 text-center">'+I18N.t('c4.shifts.emptyShifts')+'</p>';
     shiftsEl.querySelectorAll('[data-se]').forEach(b=>b.onclick=()=>openShiftEditor(shifts.find(s=>s.id===b.dataset.se)));
     shiftsEl.querySelectorAll('[data-sd]').forEach(b=>b.onclick=async()=>{
@@ -5832,10 +6062,10 @@ App.routes['#/shifts'] = async (el)=>{
     emps=await API.call('listEmployees');
     sites=await API.call('listSites');
     rosterEl.innerHTML=tableHTML([
-      {label:I18N.t('c4.common.employee'), get:r=>`<div class="flex items-center gap-3">${vAvatar(r.employeeName)}<span class="font-medium text-slate-700">${esc(r.employeeName||'—')}</span></div>`},
-      {label:I18N.t('c4.shifts.colShift'), get:r=>`<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-600 ring-1 ring-slate-200 whitespace-nowrap">${esc(r.shiftName||'—')}</span>`},
+      {label:I18N.t('c4.common.employee'), get:r=>`<div class="flex items-center gap-3">${avatar(r.employeeName)}<span class="font-medium text-slate-700">${esc(r.employeeName||'—')}</span></div>`},
+      {label:I18N.t('c4.shifts.colShift'), get:r=>`${badge(r.shiftName||'—','slate')}`},
       {label:I18N.t('c4.common.site'), get:r=>`<span class="text-slate-600">${esc(r.siteName||'—')}</span>`},
-      {label:'', get:r=>canEdit?`<div class="flex gap-1 justify-end"><button class="${vBtnSx} !text-red-600" data-rd="${r.id}">${I18N.t('c4.common.remove')}</button></div>`:''},
+      {label:'', get:r=>canEdit?`<div class="flex gap-1 justify-end"><button class="${btnS} !px-3 !py-1.5 !text-xs !text-red-600" data-rd="${r.id}">${I18N.t('c4.common.remove')}</button></div>`:''},
     ], rosters, {empty:I18N.t('c4.shifts.emptyRoster')});
     rosterEl.querySelectorAll('[data-rd]').forEach(b=>b.onclick=async()=>{
       await API.call('deleteRoster',b.dataset.rd); toast(I18N.t('c4.shifts.removed'),'success'); loadRoster();
@@ -5850,7 +6080,7 @@ App.routes['#/shifts'] = async (el)=>{
         ${field(I18N.t('c4.shifts.fEndTime'),'endTime',{value:s.endTime,type:'time',req:true})}
         <div class="col-span-2">${field(I18N.t('c4.shifts.fGrace'),'graceMin',{value:s.graceMin,type:'number',min:0})}</div>
       </div>
-      <div class="flex justify-end gap-2 mt-6"><button class="${btnS}" id="sCancel">${I18N.t('c4.common.cancel')}</button><button class="${vBtnB}" id="sSave">${I18N.t('c4.shifts.saveShift')}</button></div>`);
+      <div class="flex justify-end gap-2 mt-6"><button class="${btnS}" id="sCancel">${I18N.t('c4.common.cancel')}</button><button class="${btnP}" id="sSave">${I18N.t('c4.shifts.saveShift')}</button></div>`);
     m.el.querySelector('#sCancel').onclick=()=>m.close();
     m.el.querySelector('#sSave').onclick=async()=>{
       const data=collectForm(m.el);
@@ -5869,7 +6099,7 @@ App.routes['#/shifts'] = async (el)=>{
         ${field(I18N.t('c4.shifts.fShift'),'shiftId',{type:'select',options:shifts.map(s=>({value:s.id,label:s.name+' ('+s.startTime+'–'+s.endTime+')'}))})}
         ${field(I18N.t('c4.common.site'),'siteId',{type:'select',options:[{value:'',label:I18N.t('c4.shifts.noSite')}].concat(sites.filter(s=>s.active).map(s=>({value:s.id,label:s.name})))})}
       </div>
-      <div class="flex justify-end gap-2"><button class="${btnS}" id="rCancel">${I18N.t('c4.common.cancel')}</button><button class="${vBtnB}" id="rSave">${I18N.t('c4.shifts.assignBtn')}</button></div>`);
+      <div class="flex justify-end gap-2"><button class="${btnS}" id="rCancel">${I18N.t('c4.common.cancel')}</button><button class="${btnP}" id="rSave">${I18N.t('c4.shifts.assignBtn')}</button></div>`);
     m.el.querySelector('#rCancel').onclick=()=>m.close();
     m.el.querySelector('#rSave').onclick=async()=>{
       await API.call('saveRoster',{date:dateEl.value,...collectForm(m.el)});
@@ -5890,56 +6120,51 @@ App.routes['#/shifts'] = async (el)=>{
 App.nav.push({group:'MAIN', path:'#/attendance', label:I18N.t('c4.nav.attendance'), labelKey:'c4.nav.attendance', icon:'attendance', perm:'attendance'});
 
 /* ---------- Verola bits (shared style with payroll) ---------- */
-function vAvatar(name){
-  const init=(String(name||'?').trim().split(/\s+/).map(w=>w[0]).join('')||'?').slice(0,2).toUpperCase();
-  return `<span class="w-8 h-8 rounded-full bg-slate-200 text-slate-500 text-[11px] font-bold inline-flex items-center justify-center shrink-0">${esc(init)}</span>`;
-}
-function vCrumb(page){
-  return `<div class="flex items-center gap-2 text-[13px] text-slate-400 mb-4 anim-fadeUp">
-    <span class="text-base">⌂</span><a href="#/dashboard" class="hover:text-slate-600">${I18N.t('c4.nav.dashboard')}</a><span>›</span><span class="text-slate-700 font-semibold">${page}</span></div>`;
-}
+function vAvatar(name){ return avatar(name); }
+
 function vTabs(tab){
   return `<div class="flex gap-2 mb-5 flex-wrap">${[['log',I18N.t('c4.att.tabLog')],['map',I18N.t('c4.att.tabMap')],['corrections',I18N.t('c4.att.tabCorrections')]].map(([k,l])=>
     `<a href="#/attendance${k==='log'?'':'?tab='+k}" class="px-4 py-2 rounded-xl text-sm font-semibold transition ${tab===k?'bg-slate-900 text-white shadow':'bg-white text-slate-500 border border-slate-200 hover:border-slate-300'}">${l}</a>`).join('')}</div>`;
 }
 const V_BLACK='px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold shadow active:scale-[.98] transition';
-function vKpi(label, value, sub, ico){
+function vKpi(label, value, sub, ico, trend){
+  /* trend: {pct:number, label:string} or null — Verola pill badge like the reference */
+  const up = trend && trend.pct >= 0;
+  const tr = (trend && isFinite(trend.pct))
+    ? `<div class="flex items-center gap-1.5 mt-1.5"><span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold ${up?'bg-emerald-50 text-emerald-600':'bg-red-50 text-red-600'}">${up?'↗':'↘'} ${Math.abs(trend.pct).toFixed(1)}%</span><span class="text-xs text-slate-400">${esc(trend.label||'vs last week')}</span></div>`
+    : (sub?`<div class="text-xs text-slate-400 mt-1.5">${sub}</div>`:'');
   return `<div class="bg-white rounded-2xl border border-slate-200/70 p-5 shadow-[0_1px_3px_rgba(15,23,42,.04)]">
     <div class="flex items-center gap-2.5 mb-4">
       <span class="w-9 h-9 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center shrink-0">${ico}</span>
       <span class="text-[13px] text-slate-500 font-medium">${label}</span>
+      <span class="ml-auto w-7 h-7 rounded-lg bg-slate-50 border border-slate-100 text-slate-400 text-sm font-bold flex items-center justify-center shrink-0 select-none">···</span>
     </div>
     <div class="text-[26px] font-bold text-slate-900 tabular-nums tracking-tight">${value}</div>
-    ${sub?`<div class="text-xs text-slate-400 mt-1.5">${sub}</div>`:''}
+    ${tr}
   </div>`;
 }
 function vPill(text, color, icon){
   const c={emerald:'bg-emerald-50 text-emerald-700 ring-emerald-200',amber:'bg-amber-50 text-amber-700 ring-amber-200',red:'bg-red-50 text-red-600 ring-red-200',slate:'bg-slate-100 text-slate-500 ring-slate-200',teal:'bg-teal-50 text-teal-700 ring-teal-200',blue:'bg-blue-50 text-blue-700 ring-blue-200'}[color]||'bg-slate-100 text-slate-500 ring-slate-200';
   return `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${c} ring-1 whitespace-nowrap">${icon?`<span class="text-[10px]">${icon}</span>`:''}${text}</span>`;
 }
-function vPaginate(pg, st, render){
-  const pages=Math.max(1,Math.ceil(st.total/st.per));
-  if(st.page>pages) st.page=pages;
-  const from=st.total?(st.page-1)*st.per+1:0, to=Math.min(st.total,st.page*st.per);
-  let nums=''; for(let p=1;p<=pages;p++){ if(p===1||p===pages||Math.abs(p-st.page)<=1) nums+=`<button data-pg="${p}" class="min-w-[32px] h-8 px-2 rounded-lg text-[13px] font-semibold ${p===st.page?'bg-slate-900 text-white':'text-slate-500 hover:bg-slate-100'}">${p}</button>`; else if(!nums.endsWith('…')) nums+='<span class="text-slate-300">…</span>'; }
-  pg.innerHTML=`
-    <button data-pgprev class="w-8 h-8 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40" ${st.page<=1?'disabled':''}>‹</button>${nums}
-    <button data-pgnext class="w-8 h-8 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40" ${st.page>=pages?'disabled':''}>›</button>
-    <span class="ml-auto text-xs text-slate-400">Showing ${from} to ${to} of ${st.total} entries</span>
-    <select data-per class="bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs font-medium text-slate-600">${[8,16,50].map(n=>`<option ${n===st.per?'selected':''}>${n}</option>`).join('')}</select>`;
-  if(!pg) return;
-  const bPrev=pg.querySelector('[data-pgprev]'); if(bPrev) bPrev.onclick=()=>{ if(st.page>1){st.page--;render();} };
-  const bNext=pg.querySelector('[data-pgnext]'); if(bNext) bNext.onclick=()=>{ if(st.page<pages){st.page++;render();} };
-  pg.querySelectorAll('[data-pg]').forEach(b=>b.onclick=()=>{ st.page=+b.dataset.pg; render(); });
-  const bPer=pg.querySelector('[data-per]'); if(bPer) bPer.onchange=e=>{ st.per=+e.target.value; st.page=1; render(); };
+/* Verola pagination via shared helpers (00_utils.js): vPaginationHTML + vPaginateBind */
+function vBindPaginate(pg, st, render){
+  pg.innerHTML = vPaginationHTML(st.total, st.page, st.per);
+  vPaginateBind(pg, (a,b)=>{
+    const pages=Math.max(1, Math.ceil(st.total/st.per));
+    if(a==='prev'){ if(st.page>1){ st.page--; render(); } }
+    else if(a==='next'){ if(st.page<pages){ st.page++; render(); } }
+    else if(a==='per'){ st.per=b; st.page=1; render(); }
+    else { st.page=a; render(); }
+  });
 }
-const V_TH='px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 whitespace-nowrap';
+const V_TH='px-5 py-4 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 whitespace-nowrap';
 
 App.routes['#/attendance'] = async (el, params)=>{
   const cid=uid('att');
   const tab=(params&&params.tab)||'log';
   const canEdit=perm('attendance','edit');
-  el.innerHTML=vCrumb(I18N.t('c4.nav.attendance'))+vTabs(tab)+`<div id="${cid}-body"></div>`;
+  el.innerHTML=vTabs(tab)+`<div id="${cid}-body"></div>`;
   const body=document.getElementById(cid+'-body');
 
   if(tab==='map'){
@@ -5975,26 +6200,26 @@ App.routes['#/attendance'] = async (el, params)=>{
     body.innerHTML=`
     <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.04)] overflow-hidden anim-fadeUp">
       <div id="${cid}-tbl"></div>
-      <div id="${cid}-pg" class="flex flex-wrap items-center gap-2 px-4 py-3.5 border-t border-slate-100"></div>
+      <div id="${cid}-pg"></div>
     </div>`;
     const tbl=document.getElementById(cid+'-tbl'), pg=document.getElementById(cid+'-pg');
     function render(){
       const slice=rows.slice((st.page-1)*st.per, st.page*st.per);
-      tbl.innerHTML=`<div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="border-b border-slate-100">
+      tbl.innerHTML=`<div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="bg-[#fafbfc] border-b border-slate-100">
         ${[I18N.t('c4.common.employee'),I18N.t('c4.att.colPunch'),I18N.t('c4.att.colRequest'),I18N.t('c4.common.status')].map(h=>`<th class="${V_TH}">${h} <span class="text-slate-300">↕</span></th>`).join('')}
         <th class="${V_TH} text-right">Actions</th></tr></thead>
         <tbody class="divide-y divide-slate-50">${slice.length?slice.map(c=>`<tr class="hover:bg-slate-50/70 transition-colors">
-          <td class="px-4 py-3"><div class="flex items-center gap-2.5">${vAvatar(c.employeeName)}<span class="font-medium text-slate-700 whitespace-nowrap">${esc(c.employeeName)}</span></div></td>
-          <td class="px-4 py-3 text-slate-600 whitespace-nowrap tabular-nums">${esc(c.punchDate)} · ${c.punchType==='in'?I18N.t('c4.common.checkIn'):I18N.t('c4.common.checkOut')} ${esc(c.punchTime)}</td>
-          <td class="px-4 py-3"><span class="text-slate-500 text-[13px]">${esc(c.note)}</span></td>
-          <td class="px-4 py-3">${c.status==='pending'?vPill(I18N.t('c4.common.pending'),'amber','◷'):c.status==='approved'?vPill(I18N.t('c4.common.approved'),'emerald','✓'):vPill(I18N.t('c4.common.rejected'),'red','✕')}</td>
-          <td class="px-4 py-3 text-right">${c.status==='pending'&&canEdit?`<div class="flex gap-1.5 justify-end">
+          <td class="px-5 py-4"><div class="flex items-center gap-2.5">${vAvatar(c.employeeName)}<span class="font-medium text-slate-700 whitespace-nowrap">${esc(c.employeeName)}</span></div></td>
+          <td class="px-5 py-4 text-slate-600 whitespace-nowrap tabular-nums">${esc(c.punchDate)} · ${c.punchType==='in'?I18N.t('c4.common.checkIn'):I18N.t('c4.common.checkOut')} ${esc(c.punchTime)}</td>
+          <td class="px-5 py-4"><span class="text-slate-500 text-[13px]">${esc(c.note)}</span></td>
+          <td class="px-5 py-4">${c.status==='pending'?vPill(I18N.t('c4.common.pending'),'amber','◷'):c.status==='approved'?vPill(I18N.t('c4.common.approved'),'emerald','✓'):vPill(I18N.t('c4.common.rejected'),'red','✕')}</td>
+          <td class="px-5 py-4 text-right">${c.status==='pending'&&canEdit?`<div class="flex gap-1.5 justify-end">
             <button class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 hover:bg-emerald-100 transition" data-ok="${c.id}">${I18N.t('c4.common.approve')}</button>
             <button class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-50 text-red-600 ring-1 ring-red-200 hover:bg-red-100 transition" data-no="${c.id}">${I18N.t('c4.common.reject')}</button></div>`
             :`<span class="text-xs text-slate-400">${esc(c.decidedBy||'')}</span>`}</td>
         </tr>`).join(''):`<tr><td colspan="5" class="px-4 py-14 text-center"><div class="text-slate-300 text-3xl mb-2">◌</div><div class="text-sm text-slate-400">${I18N.t('c4.att.emptyCorrections')}</div></td></tr>`}
         </tbody></table></div>`;
-      vPaginate(pg, st, render);
+      vBindPaginate(pg, st, render);
       tbl.querySelectorAll('[data-ok]').forEach(b=>b.onclick=async()=>{ await API.call('decideCorrection',b.dataset.ok,'approved'); toast(I18N.t('c4.att.correctionApproved'),'success'); App.route(); });
       tbl.querySelectorAll('[data-no]').forEach(b=>b.onclick=async()=>{ await API.call('decideCorrection',b.dataset.no,'rejected'); toast(I18N.t('c4.att.correctionRejected'),'success'); App.route(); });
     }
@@ -6007,6 +6232,14 @@ App.routes['#/attendance'] = async (el, params)=>{
   const sites=await API.call('listSites').catch(()=>[]);
   const dash=await API.call('getDashboard').catch(()=>({}));
   const k=dash.kpis||dash||{};
+  /* real trend for Present: last-7-day avg vs prior-7-day avg (same as dashboard) */
+  let presentTrend=null;
+  try{
+    const tv=(dash.punchesTrend||[]).slice(-14).map(p=>Number(p.present)||0);
+    const avg=a=>a.length?a.reduce((s,v)=>s+v,0)/a.length:0;
+    const prev=avg(tv.slice(0,Math.max(0,tv.length-7))), cur=avg(tv.slice(Math.max(0,tv.length-7)));
+    if(prev>0 && isFinite(cur)) presentTrend={pct:(cur-prev)/Math.abs(prev)*100, label:'vs last week'};
+  }catch(e){}
   const icoP=App.ICONS&&App.ICONS.punch?App.ICONS.punch:'';
   const icoE=App.ICONS&&App.ICONS.employees?App.ICONS.employees:'';
   const icoS=App.ICONS&&App.ICONS.shifts?App.ICONS.shifts:'';
@@ -6024,7 +6257,7 @@ App.routes['#/attendance'] = async (el, params)=>{
     </div>
   </div>
   <div class="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-5 anim-fadeUp">
-    ${vKpi(I18N.t('c4.dash.kpiPresent'), fmtNum(k.presentToday||0), I18N.t('c4.dash.kpiPresentSub'), icoP)}
+    ${vKpi(I18N.t('c4.dash.kpiPresent'), fmtNum(k.presentToday||0), I18N.t('c4.dash.kpiPresentSub'), icoP, presentTrend)}
     ${vKpi(I18N.t('c4.dash.kpiAbsent'), fmtNum(k.absentToday||0), I18N.t('c4.dash.kpiAbsentSub'), icoE)}
     ${vKpi(I18N.t('c4.dash.kpiLate'), fmtNum(k.lateToday||0), I18N.t('c4.dash.kpiLateSub'), icoS)}
     ${vKpi(I18N.t('c4.dash.kpiOoz'), fmtNum(k.outOfZoneToday||0), I18N.t('c4.dash.kpiOozSub'), icoL)}
@@ -6047,7 +6280,7 @@ App.routes['#/attendance'] = async (el, params)=>{
       <button class="${V_BLACK}" id="${cid}-go">${I18N.t('c4.common.apply')}</button>
     </div>
     <div id="${cid}-rows"></div>
-    <div id="${cid}-pg" class="flex flex-wrap items-center gap-2 px-4 py-3.5 border-t border-slate-100"></div>
+    <div id="${cid}-pg"></div>
   </div>`;
 
   const rowsEl=document.getElementById(cid+'-rows');
@@ -6065,25 +6298,25 @@ App.routes['#/attendance'] = async (el, params)=>{
     const rows=filtered();
     st.total=rows.length;
     const slice=rows.slice((st.page-1)*st.per, st.page*st.per);
-    rowsEl.innerHTML=`<div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="border-b border-slate-100">
+    rowsEl.innerHTML=`<div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="bg-[#fafbfc] border-b border-slate-100">
       ${[I18N.t('c4.common.date'),I18N.t('c4.common.employee'),I18N.t('c4.att.colType'),I18N.t('c4.att.colTime'),I18N.t('c4.common.site'),I18N.t('c4.att.colDistance'),I18N.t('c4.att.colZone'),I18N.t('c4.att.colSource')].map((h,i)=>`<th class="${V_TH} ${i===5?'text-right':''}">${h} <span class="text-slate-300">↕</span></th>`).join('')}
       <th class="${V_TH} text-right">Actions</th></tr></thead>
       <tbody class="divide-y divide-slate-50">${slice.length?slice.map(p=>`<tr class="hover:bg-slate-50/70 transition-colors">
-        <td class="px-4 py-3 tabular-nums text-slate-600 whitespace-nowrap">${fmtDate(p.date)}</td>
-        <td class="px-4 py-3"><div class="flex items-center gap-2.5">${vAvatar(p.employeeName)}<div><div class="font-medium text-slate-700 whitespace-nowrap">${esc(p.employeeName)}</div><div class="text-[11px] text-slate-400">${esc(p.employeeCode||'')}</div></div></div></td>
-        <td class="px-4 py-3">${p.type==='in'?vPill(I18N.t('c4.common.checkIn'),'emerald','✓'):vPill(I18N.t('c4.common.checkOut'),'slate','◷')}</td>
-        <td class="px-4 py-3 tabular-nums font-semibold text-slate-700 whitespace-nowrap">${esc(p.time)}</td>
-        <td class="px-4 py-3 text-slate-600 whitespace-nowrap">${esc(p.siteName||'—')}</td>
-        <td class="px-4 py-3 text-right tabular-nums text-slate-600">${p.distanceM!=null?fmtNum(p.distanceM)+' m':'<span class="text-slate-300">—</span>'}</td>
-        <td class="px-4 py-3">${p.outOfZone?vPill(I18N.t('c4.common.outOfZone'),'red','!'):vPill(I18N.t('c4.common.inZone'),'teal','✓')}</td>
-        <td class="px-4 py-3 text-xs text-slate-400">${esc(p.source||'')}</td>
-        <td class="px-4 py-3 text-right"><div class="flex gap-1.5 justify-end">
+        <td class="px-5 py-4 tabular-nums text-slate-600 whitespace-nowrap">${fmtDate(p.date)}</td>
+        <td class="px-5 py-4"><div class="flex items-center gap-2.5">${vAvatar(p.employeeName)}<div><div class="font-medium text-slate-700 whitespace-nowrap">${esc(p.employeeName)}</div><div class="text-[11px] text-slate-400">${esc(p.employeeCode||'')}</div></div></div></td>
+        <td class="px-5 py-4">${p.type==='in'?vPill(I18N.t('c4.common.checkIn'),'emerald','✓'):vPill(I18N.t('c4.common.checkOut'),'slate','◷')}</td>
+        <td class="px-5 py-4 tabular-nums font-semibold text-slate-700 whitespace-nowrap">${esc(p.time)}</td>
+        <td class="px-5 py-4 text-slate-600 whitespace-nowrap">${esc(p.siteName||'—')}</td>
+        <td class="px-5 py-4 text-right tabular-nums text-slate-600">${p.distanceM!=null?fmtNum(p.distanceM)+' m':'<span class="text-slate-300">—</span>'}</td>
+        <td class="px-5 py-4">${p.outOfZone?vPill(I18N.t('c4.common.outOfZone'),'red','!'):vPill(I18N.t('c4.common.inZone'),'teal','✓')}</td>
+        <td class="px-5 py-4 text-xs text-slate-400">${esc(p.source||'')}</td>
+        <td class="px-5 py-4 text-right"><div class="flex gap-1.5 justify-end">
           ${p.selfie?`<button class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white border border-slate-200 text-slate-500 hover:border-slate-300 transition" data-img="${p.id}">${I18N.t('c4.att.selfieBtn')}</button>`:''}
           ${canEdit?`<button class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white border border-slate-200 text-slate-500 hover:border-slate-300 transition" data-corr="${p.id}">${I18N.t('c4.att.requestFix')}</button>
           <button class="w-8 h-8 rounded-lg border border-slate-200 text-slate-400 hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition font-bold" data-del="${p.id}">✕</button>`:''}</div></td>
       </tr>`).join(''):`<tr><td colspan="9" class="px-4 py-14 text-center"><div class="text-slate-300 text-3xl mb-2">◌</div><div class="text-sm text-slate-400">${I18N.t('c4.att.emptyLog')}</div></td></tr>`}
       </tbody></table></div>`;
-    vPaginate(pgEl, st, renderTable);
+    vBindPaginate(pgEl, st, renderTable);
     rowsEl.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{
       if(!await confirmDlg(I18N.t('c4.att.delPunchTitle'),I18N.t('c4.emp.cannotUndo'),I18N.t('c4.common.delete'))) return;
       await API.call('deletePunch',b.dataset.del); toast(I18N.t('c4.att.punchDeleted'),'success'); load();
@@ -6166,10 +6399,8 @@ App.routes['#/attendance'] = async (el, params)=>{
 App.nav.push({group:'PEOPLE', path:'#/leave', label:I18N.t('c4.nav.leave'), labelKey:'c4.nav.leave', icon:'leave', perm:'leave'});
 
 /* ---------- Verola bits (shared style with payroll) ---------- */
-function vAvatar(name){
-  const init=(String(name||'?').trim().split(/\s+/).map(w=>w[0]).join('')||'?').slice(0,2).toUpperCase();
-  return `<span class="w-8 h-8 rounded-full bg-slate-200 text-slate-500 text-[11px] font-bold inline-flex items-center justify-center shrink-0">${esc(init)}</span>`;
-}
+function vAvatar(name){ return avatar(name); }
+
 function vCrumb(page){
   return `<div class="flex items-center gap-2 text-[13px] text-slate-400 mb-4 anim-fadeUp">
     <span class="text-base">⌂</span><a href="#/dashboard" class="hover:text-slate-600">${I18N.t('c4.nav.dashboard')}</a><span>›</span><span class="text-slate-700 font-semibold">${page}</span></div>`;
@@ -6184,6 +6415,7 @@ function vKpi(label, value, sub, ico){
     <div class="flex items-center gap-2.5 mb-4">
       <span class="w-9 h-9 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center shrink-0">${ico}</span>
       <span class="text-[13px] text-slate-500 font-medium">${label}</span>
+      <span class="ml-auto w-7 h-7 rounded-lg bg-slate-50 border border-slate-100 text-slate-400 text-sm font-bold flex items-center justify-center shrink-0 select-none">···</span>
     </div>
     <div class="text-[26px] font-bold text-slate-900 tabular-nums tracking-tight">${value}</div>
     ${sub?`<div class="text-xs text-slate-400 mt-1.5">${sub}</div>`:''}
@@ -6219,7 +6451,7 @@ App.routes['#/leave'] = async (el, params)=>{
   const emps=await API.call('listEmployees').catch(()=>[]);
   const types=await API.call('listLeaveTypes').catch(()=>[]);
 
-  el.innerHTML=vCrumb(I18N.t('c4.nav.leave'))+`
+  el.innerHTML=`
   <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
     ${vTabs(tab)}
     <div class="flex gap-2 flex-wrap">
@@ -6421,10 +6653,8 @@ App.routes['#/leave'] = async (el, params)=>{
 App.nav.push({group:'PEOPLE', path:'#/overtime', label:I18N.t('c4.nav.overtime'), labelKey:'c4.nav.overtime', icon:'overtime', perm:'overtime'});
 
 /* ---------- Verola bits (shared style with payroll) ---------- */
-function vAvatar(name){
-  const init=(String(name||'?').trim().split(/\s+/).map(w=>w[0]).join('')||'?').slice(0,2).toUpperCase();
-  return `<span class="w-8 h-8 rounded-full bg-slate-200 text-slate-500 text-[11px] font-bold inline-flex items-center justify-center shrink-0">${esc(init)}</span>`;
-}
+function vAvatar(name){ return avatar(name); }
+
 function vCrumb(page){
   return `<div class="flex items-center gap-2 text-[13px] text-slate-400 mb-4 anim-fadeUp">
     <span class="text-base">⌂</span><a href="#/dashboard" class="hover:text-slate-600">${I18N.t('c4.nav.dashboard')}</a><span>›</span><span class="text-slate-700 font-semibold">${page}</span></div>`;
@@ -6435,6 +6665,7 @@ function vKpi(label, value, sub, ico){
     <div class="flex items-center gap-2.5 mb-4">
       <span class="w-9 h-9 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center shrink-0">${ico}</span>
       <span class="text-[13px] text-slate-500 font-medium">${label}</span>
+      <span class="ml-auto w-7 h-7 rounded-lg bg-slate-50 border border-slate-100 text-slate-400 text-sm font-bold flex items-center justify-center shrink-0 select-none">···</span>
     </div>
     <div class="text-[26px] font-bold text-slate-900 tabular-nums tracking-tight">${value}</div>
     ${sub?`<div class="text-xs text-slate-400 mt-1.5">${sub}</div>`:''}
@@ -6468,12 +6699,13 @@ App.routes['#/overtime'] = async (el)=>{
   const canEdit=perm('overtime','edit');
   const emps=await API.call('listEmployees').catch(()=>[]);
 
-  el.innerHTML=vCrumb(I18N.t('c4.nav.overtime'))+`
+  el.innerHTML=`
   <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
     <div class="inline-flex items-center gap-1 bg-slate-100 rounded-xl p-1" id="${cid}-range">
       <button data-range="all" class="px-4 py-2 rounded-lg text-[13px] font-semibold bg-white shadow-sm text-slate-800 ring-1 ring-slate-200">${I18N.t('c4.ot.allStatuses')}</button>
       <button data-range="pending" class="px-4 py-2 rounded-lg text-[13px] font-semibold text-slate-400 hover:text-slate-600">${I18N.t('c4.common.pending')}</button>
       <button data-range="approved" class="px-4 py-2 rounded-lg text-[13px] font-semibold text-slate-400 hover:text-slate-600">${I18N.t('c4.common.approved')}</button>
+      <button data-range="rejected" class="px-4 py-2 rounded-lg text-[13px] font-semibold text-slate-400 hover:text-slate-600">${I18N.t('c4.common.rejected')}</button>
     </div>
     <button class="${V_BLACK}" id="${cid}-add">+ ${I18N.t('c4.ot.logOvertime')}</button>
   </div>
@@ -6503,12 +6735,6 @@ App.routes['#/overtime'] = async (el)=>{
             <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">⌕</span>
             <input id="${cid}-q" placeholder="Search..." value="${esc(st.q)}" class="w-full bg-white border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400 focus:outline-none">
           </div>
-          <select id="${cid}-f" class="bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 focus:outline-none">
-            <option value="">▽ ${I18N.t('c4.ot.allStatuses')}</option>
-            <option value="pending" ${st.status==='pending'?'selected':''}>${I18N.t('c4.common.pending')}</option>
-            <option value="approved" ${st.status==='approved'?'selected':''}>${I18N.t('c4.common.approved')}</option>
-            <option value="rejected" ${st.status==='rejected'?'selected':''}>${I18N.t('c4.common.rejected')}</option>
-          </select>
         </div>
         <div id="${cid}-tbl"></div>
         <div id="${cid}-pg" class="flex flex-wrap items-center gap-2 px-4 py-3.5 border-t border-slate-100"></div>
@@ -6547,7 +6773,6 @@ App.routes['#/overtime'] = async (el)=>{
     }
     const qIn=document.getElementById(cid+'-q');
     qIn.oninput=debounce(()=>{ st.q=qIn.value; st.page=1; render(); },300);
-    document.getElementById(cid+'-f').onchange=e=>{ st.status=e.target.value; st.page=1; load(); };
     render();
   }
   el.querySelectorAll('#'+cid+'-range [data-range]').forEach(b=>b.onclick=()=>{

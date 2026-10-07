@@ -6,10 +6,8 @@
 App.nav.push({group:'PEOPLE', path:'#/overtime', label:I18N.t('c4.nav.overtime'), labelKey:'c4.nav.overtime', icon:'overtime', perm:'overtime'});
 
 /* ---------- Verola bits (shared style with payroll) ---------- */
-function vAvatar(name){
-  const init=(String(name||'?').trim().split(/\s+/).map(w=>w[0]).join('')||'?').slice(0,2).toUpperCase();
-  return `<span class="w-8 h-8 rounded-full bg-slate-200 text-slate-500 text-[11px] font-bold inline-flex items-center justify-center shrink-0">${esc(init)}</span>`;
-}
+function vAvatar(name){ return avatar(name); }
+
 function vCrumb(page){
   return `<div class="flex items-center gap-2 text-[13px] text-slate-400 mb-4 anim-fadeUp">
     <span class="text-base">⌂</span><a href="#/dashboard" class="hover:text-slate-600">${I18N.t('c4.nav.dashboard')}</a><span>›</span><span class="text-slate-700 font-semibold">${page}</span></div>`;
@@ -20,6 +18,7 @@ function vKpi(label, value, sub, ico){
     <div class="flex items-center gap-2.5 mb-4">
       <span class="w-9 h-9 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center shrink-0">${ico}</span>
       <span class="text-[13px] text-slate-500 font-medium">${label}</span>
+      <span class="ml-auto w-7 h-7 rounded-lg bg-slate-50 border border-slate-100 text-slate-400 text-sm font-bold flex items-center justify-center shrink-0 select-none">···</span>
     </div>
     <div class="text-[26px] font-bold text-slate-900 tabular-nums tracking-tight">${value}</div>
     ${sub?`<div class="text-xs text-slate-400 mt-1.5">${sub}</div>`:''}
@@ -53,12 +52,13 @@ App.routes['#/overtime'] = async (el)=>{
   const canEdit=perm('overtime','edit');
   const emps=await API.call('listEmployees').catch(()=>[]);
 
-  el.innerHTML=vCrumb(I18N.t('c4.nav.overtime'))+`
+  el.innerHTML=`
   <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
     <div class="inline-flex items-center gap-1 bg-slate-100 rounded-xl p-1" id="${cid}-range">
       <button data-range="all" class="px-4 py-2 rounded-lg text-[13px] font-semibold bg-white shadow-sm text-slate-800 ring-1 ring-slate-200">${I18N.t('c4.ot.allStatuses')}</button>
       <button data-range="pending" class="px-4 py-2 rounded-lg text-[13px] font-semibold text-slate-400 hover:text-slate-600">${I18N.t('c4.common.pending')}</button>
       <button data-range="approved" class="px-4 py-2 rounded-lg text-[13px] font-semibold text-slate-400 hover:text-slate-600">${I18N.t('c4.common.approved')}</button>
+      <button data-range="rejected" class="px-4 py-2 rounded-lg text-[13px] font-semibold text-slate-400 hover:text-slate-600">${I18N.t('c4.common.rejected')}</button>
     </div>
     <button class="${V_BLACK}" id="${cid}-add">+ ${I18N.t('c4.ot.logOvertime')}</button>
   </div>
@@ -88,12 +88,6 @@ App.routes['#/overtime'] = async (el)=>{
             <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">⌕</span>
             <input id="${cid}-q" placeholder="Search..." value="${esc(st.q)}" class="w-full bg-white border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400 focus:outline-none">
           </div>
-          <select id="${cid}-f" class="bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 focus:outline-none">
-            <option value="">▽ ${I18N.t('c4.ot.allStatuses')}</option>
-            <option value="pending" ${st.status==='pending'?'selected':''}>${I18N.t('c4.common.pending')}</option>
-            <option value="approved" ${st.status==='approved'?'selected':''}>${I18N.t('c4.common.approved')}</option>
-            <option value="rejected" ${st.status==='rejected'?'selected':''}>${I18N.t('c4.common.rejected')}</option>
-          </select>
         </div>
         <div id="${cid}-tbl"></div>
         <div id="${cid}-pg" class="flex flex-wrap items-center gap-2 px-4 py-3.5 border-t border-slate-100"></div>
@@ -132,7 +126,6 @@ App.routes['#/overtime'] = async (el)=>{
     }
     const qIn=document.getElementById(cid+'-q');
     qIn.oninput=debounce(()=>{ st.q=qIn.value; st.page=1; render(); },300);
-    document.getElementById(cid+'-f').onchange=e=>{ st.status=e.target.value; st.page=1; load(); };
     render();
   }
   el.querySelectorAll('#'+cid+'-range [data-range]').forEach(b=>b.onclick=()=>{

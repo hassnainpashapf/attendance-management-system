@@ -11,15 +11,23 @@ function vDocAvatar(name){
   const init=(String(name||'?').trim().split(/\s+/).map(w=>w[0]).join('')||'?').slice(0,2).toUpperCase();
   return `<span class="w-8 h-8 rounded-full bg-slate-200 text-slate-500 text-[11px] font-bold inline-flex items-center justify-center shrink-0">${esc(init)}</span>`;
 }
-function vDocKpi(label, value, ico, sub){
+function vDocKpi(label, value, ico, sub, trend){
   return `<div class="bg-white rounded-2xl border border-slate-200/70 p-5 shadow-[0_1px_3px_rgba(15,23,42,.04)]">
     <div class="flex items-center gap-2.5 mb-4">
       <span class="w-9 h-9 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center shrink-0">${ico}</span>
       <span class="text-[13px] text-slate-500 font-medium">${label}</span>
+      <span class="ml-auto w-7 h-7 rounded-lg bg-slate-50 border border-slate-100 text-slate-400 text-sm font-bold flex items-center justify-center shrink-0 select-none">···</span>
     </div>
     <div class="text-[26px] font-bold text-slate-900 tabular-nums tracking-tight">${value}</div>
-    ${sub?`<div class="text-xs text-slate-400 mt-1.5">${sub}</div>`:''}
+    ${trend?`<div class="flex items-center gap-1.5 mt-1.5">${trend}</div>`:sub?`<div class="text-xs text-slate-400 mt-1.5">${sub}</div>`:''}
   </div>`;
+}
+/* Verola trend badge: vTrendBadge(pct, period) -> e.g. red "▼ 2.9%" + "Last 30 days" */
+function vDocTrend(pct, period){
+  const down=pct<0, flat=pct===0;
+  const cls=flat?'bg-slate-100 text-slate-500':down?'bg-red-50 text-red-600':'bg-emerald-50 text-emerald-600';
+  const arrow=flat?'–':down?'▼':'▲';
+  return `<span class="inline-flex items-center gap-0.5 text-[11px] font-bold px-1.5 py-0.5 rounded-md ${cls}">${arrow} ${Math.abs(pct).toFixed(1)}%</span><span class="text-[11px] text-slate-400">${period||''}</span>`;
 }
 const V_DOC_FILE='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><path d="M6 2.5h8l4 4V21.5H6z"/><path d="M14 2.5v4h4"/></svg>';
 const V_DOC_EMP='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4"><circle cx="12" cy="8" r="3.6"/><path d="M5 20c1-4 3.6-6 7-6s6 2 7 6"/></svg>';
@@ -30,9 +38,9 @@ App.routes['#/documents'] = async (el)=>{
   const cid=uid('doc');
   const canEdit=perm('documents','edit');
   el.innerHTML=`
-    <div class="flex items-center gap-2 text-[13px] text-slate-400 mb-4 anim-fadeUp">
-      <span class="text-base">⌂</span><a href="#/dashboard" class="hover:text-slate-600">${I18N.t('c4.nav.dashboard')}</a><span>›</span><span class="text-slate-700 font-semibold">${I18N.t('c4.nav.documents')}</span>
-      <div class="ml-auto">${canEdit?`<button class="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold shadow active:scale-[.98] transition" id="${cid}-add">+ ${I18N.t('c4.docs.addDoc')}</button>`:''}</div>
+    <div class="flex items-center justify-between mb-4 anim-fadeUp">
+      <h2 class="text-lg font-bold text-slate-900 tracking-tight">${I18N.t('c4.nav.documents')}</h2>
+      <div>${canEdit?`<button class="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold shadow active:scale-[.98] transition" id="${cid}-add">+ ${I18N.t('c4.docs.addDoc')}</button>`:''}</div>
     </div>
     <div id="${cid}-alerts"></div>
     <div id="${cid}-kpis" class="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-5"></div>
@@ -42,12 +50,7 @@ App.routes['#/documents'] = async (el)=>{
           <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">⌕</span>
           <input id="${cid}-q" placeholder="${I18N.t('c4.common.search')}..." class="w-full bg-white border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400 focus:outline-none">
         </div>
-        <select id="${cid}-fExp" class="bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 focus:outline-none">
-          <option value="all">${I18N.t('c4.common.all')}</option>
-          <option value="expiring">${txDoc('c4.docs.expiringSoon','Expiring soon')}</option>
-          <option value="expired">${I18N.t('c4.common.expired')}</option>
-          <option value="valid">${txDoc('c4.docs.valid','Valid')}</option>
-        </select>
+        <div id="${cid}-pills" class="flex flex-wrap items-center gap-2"></div>
       </div>
       <div id="${cid}-body"></div>
     </div>`;
@@ -56,7 +59,14 @@ App.routes['#/documents'] = async (el)=>{
   const kpisEl=document.getElementById(cid+'-kpis');
   const emps=await API.call('listEmployees').catch(()=>[]);
 
-  const st={q:'', f:'all', rows:[]};
+  const st={q:'', f:'all', rows:[], sortKey:'expiryDate', sortDir:1};
+  const PILL_F=[['all',I18N.t('c4.common.all')],['expiring',txDoc('c4.docs.expiringSoon','Expiring soon')],['expired',I18N.t('c4.common.expired')],['valid',txDoc('c4.docs.valid','Valid')]];
+  const pillsEl=document.getElementById(cid+'-pills');
+  function renderPills(){
+    pillsEl.innerHTML=PILL_F.map(([v,l])=>`<button data-pf="${v}" class="px-3.5 py-2 rounded-xl text-[13px] font-semibold border transition active:scale-[.98] ${st.f===v?'bg-slate-900 border-slate-900 text-white shadow':'bg-white border-slate-200 text-slate-600 hover:border-slate-300'}">${l}</button>`).join('');
+    pillsEl.querySelectorAll('[data-pf]').forEach(b=>b.onclick=()=>{ st.f=b.dataset.pf; renderPills(); render(); });
+  }
+  renderPills();
 
   function daysBadge(d){
     if(d.daysLeft<0) return badge(I18N.t('c4.common.expired'),'red');
@@ -65,6 +75,10 @@ App.routes['#/documents'] = async (el)=>{
     return badge(I18N.t('c4.common.daysLeftN').replace('{n}',d.daysLeft),'teal');
   }
 
+  function sortArrow(k){ return st.sortKey===k?`<span class="text-slate-700">${st.sortDir===1?'↑':'↓'}</span>`:'<span class="text-slate-300">↕</span>'; }
+  function thSort(label, key, cls){
+    return `<th data-sort="${key}" class="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 whitespace-nowrap ${cls||''} cursor-pointer select-none hover:text-slate-600">${label} ${sortArrow(key)}</th>`;
+  }
   function render(){
     const q=st.q.trim().toLowerCase();
     const rows=st.rows.filter(d=>{
@@ -74,25 +88,38 @@ App.routes['#/documents'] = async (el)=>{
       if(st.f==='valid'&&d.daysLeft<0) return false;
       return true;
     });
-    body.innerHTML=`<div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="border-b border-slate-100">
-      ${[I18N.t('c4.docs.colDocument'),I18N.t('c4.common.employee'),I18N.t('c4.docs.colExpiry'),I18N.t('c4.docs.colDaysLeft')].map(h=>
-        `<th class="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 whitespace-nowrap">${h}</th>`).join('')}
+    const sk=st.sortKey, sd=st.sortDir;
+    rows.sort((a,b)=>{
+      let x=a[sk], y=b[sk];
+      if(typeof x==='string'){ x=x.toLowerCase(); y=String(y).toLowerCase(); }
+      return (x<y?-1:x>y?1:0)*sd;
+    });
+    body.innerHTML=`<div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="border-b border-slate-100 bg-[#fafbfc]">
+      ${thSort(I18N.t('c4.docs.colDocument'),'title')}
+      ${thSort(I18N.t('c4.common.employee'),'employeeName')}
+      ${thSort(I18N.t('c4.docs.colExpiry'),'expiryDate')}
+      ${thSort(I18N.t('c4.docs.colDaysLeft'),'daysLeft')}
       <th class="px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-slate-400">${txDoc('c4.common.actions','')}</th></tr></thead>
       <tbody class="divide-y divide-slate-50">${rows.length?rows.map(d=>`
         <tr class="hover:bg-slate-50/70 transition-colors">
-          <td class="px-4 py-3"><div class="flex items-center gap-2.5">
+          <td class="px-4 py-4"><div class="flex items-center gap-2.5">
             <span class="w-8 h-8 rounded-lg bg-slate-100 text-slate-500 flex items-center justify-center shrink-0">${V_DOC_FILE}</span>
             <span class="font-medium text-slate-700">${esc(d.title)}</span></div></td>
-          <td class="px-4 py-3"><div class="flex items-center gap-2.5">${vDocAvatar(d.employeeName)}<span class="text-slate-600 whitespace-nowrap">${esc(d.employeeName||'—')}</span></div></td>
-          <td class="px-4 py-3"><span class="tabular-nums text-slate-600">${fmtDate(d.expiryDate)}</span></td>
-          <td class="px-4 py-3">${daysBadge(d)}</td>
-          <td class="px-4 py-3 text-right">${canEdit?`<div class="flex gap-1.5 justify-end">
+          <td class="px-4 py-4"><div class="flex items-center gap-2.5">${vDocAvatar(d.employeeName)}<span class="text-slate-600 whitespace-nowrap">${esc(d.employeeName||'—')}</span></div></td>
+          <td class="px-4 py-4"><span class="tabular-nums text-slate-600">${fmtDate(d.expiryDate)}</span></td>
+          <td class="px-4 py-4">${daysBadge(d)}</td>
+          <td class="px-4 py-4 text-right">${canEdit?`<div class="flex gap-1.5 justify-end">
             <button class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:border-slate-300 hover:bg-slate-50" data-dedit="${d.id}">${I18N.t('c4.common.edit')}</button>
             <button class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-red-600 hover:border-red-200 hover:bg-red-50" data-ddel="${d.id}">${I18N.t('c4.common.delete')}</button></div>`:''}</td>
         </tr>`).join(''):
         `<tr><td colspan="5" class="px-4 py-14 text-center"><div class="text-slate-300 text-3xl mb-2">◌</div><div class="text-sm text-slate-400">${I18N.t('c4.docs.emptyDocs')}</div></td></tr>`}
       </tbody></table></div>
       <div class="flex items-center px-4 py-3.5 border-t border-slate-100"><span class="text-xs text-slate-400">${txDoc('c4.common.showingN','Showing {n} documents').replace('{n}',rows.length)}</span></div>`;
+    body.querySelectorAll('[data-sort]').forEach(th=>th.onclick=()=>{
+      const k=th.dataset.sort;
+      if(st.sortKey===k) st.sortDir*=-1; else { st.sortKey=k; st.sortDir=1; }
+      render();
+    });
     body.querySelectorAll('[data-ddel]').forEach(b=>b.onclick=async()=>{
       if(!await confirmDlg(I18N.t('c4.docs.delDocTitle'),I18N.t('c4.emp.cannotUndo'),I18N.t('c4.common.delete'))) return;
       await API.call('deleteDocument',b.dataset.ddel); toast(I18N.t('c4.emp.deleted'),'success'); load();
@@ -149,7 +176,6 @@ App.routes['#/documents'] = async (el)=>{
   }
   const addB=document.getElementById(cid+'-add'); if(addB) addB.onclick=()=>openEditor(null);
   document.getElementById(cid+'-q').oninput=debounce(e=>{ st.q=e.target.value; render(); },300);
-  document.getElementById(cid+'-fExp').onchange=e=>{ st.f=e.target.value; render(); };
   await load();
 };
 })();

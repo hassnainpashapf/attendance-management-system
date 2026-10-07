@@ -6,10 +6,8 @@
 App.nav.push({group:'PEOPLE', path:'#/leave', label:I18N.t('c4.nav.leave'), labelKey:'c4.nav.leave', icon:'leave', perm:'leave'});
 
 /* ---------- Verola bits (shared style with payroll) ---------- */
-function vAvatar(name){
-  const init=(String(name||'?').trim().split(/\s+/).map(w=>w[0]).join('')||'?').slice(0,2).toUpperCase();
-  return `<span class="w-8 h-8 rounded-full bg-slate-200 text-slate-500 text-[11px] font-bold inline-flex items-center justify-center shrink-0">${esc(init)}</span>`;
-}
+function vAvatar(name){ return avatar(name); }
+
 function vCrumb(page){
   return `<div class="flex items-center gap-2 text-[13px] text-slate-400 mb-4 anim-fadeUp">
     <span class="text-base">⌂</span><a href="#/dashboard" class="hover:text-slate-600">${I18N.t('c4.nav.dashboard')}</a><span>›</span><span class="text-slate-700 font-semibold">${page}</span></div>`;
@@ -24,6 +22,7 @@ function vKpi(label, value, sub, ico){
     <div class="flex items-center gap-2.5 mb-4">
       <span class="w-9 h-9 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center shrink-0">${ico}</span>
       <span class="text-[13px] text-slate-500 font-medium">${label}</span>
+      <span class="ml-auto w-7 h-7 rounded-lg bg-slate-50 border border-slate-100 text-slate-400 text-sm font-bold flex items-center justify-center shrink-0 select-none">···</span>
     </div>
     <div class="text-[26px] font-bold text-slate-900 tabular-nums tracking-tight">${value}</div>
     ${sub?`<div class="text-xs text-slate-400 mt-1.5">${sub}</div>`:''}
@@ -59,7 +58,7 @@ App.routes['#/leave'] = async (el, params)=>{
   const emps=await API.call('listEmployees').catch(()=>[]);
   const types=await API.call('listLeaveTypes').catch(()=>[]);
 
-  el.innerHTML=vCrumb(I18N.t('c4.nav.leave'))+`
+  el.innerHTML=`
   <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
     ${vTabs(tab)}
     <div class="flex gap-2 flex-wrap">

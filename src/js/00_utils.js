@@ -113,18 +113,67 @@ function field(label,name,opts={}){
 }
 
 /* ---------- tables & cards ---------- */
+/* Verola-exact table: uppercase headers with sort icons, checkbox support,
+   pixel-perfect row styling. opts.checkbox=true adds selection column. */
 function tableHTML(cols, rows, opts={}){
   const tcls=opts.compact?'text-xs':'text-sm';
+  const sortIc='<span class="text-slate-300 text-[9px] ml-1.5 select-none">↕</span>';
+  const cbHead=opts.checkbox?`<th class="pl-5 pr-2 py-3 w-12"><input type="checkbox" data-vcb-all class="w-4 h-4 rounded border-slate-300 text-slate-900 accent-slate-900 cursor-pointer align-middle"></th>`:'';
   return `<div class="overflow-x-auto rounded-2xl border border-slate-200/70 bg-white shadow-[0_1px_3px_rgba(15,23,42,.04)]">
     <table class="w-full ${tcls}">
       <thead>
-        <tr class="border-b border-slate-200/70 bg-slate-50/60">${cols.map(c=>`<th class="px-5 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 whitespace-nowrap ${c.num?'text-right':''}">${c.label}</th>`).join('')}</tr>
+        <tr class="border-b border-slate-200/70 bg-[#fafbfc]">${cbHead}${cols.map(c=>`<th class="px-5 py-3.5 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 whitespace-nowrap ${c.num?'text-right':''}">${esc(c.label)}${c.nosort?'':sortIc}</th>`).join('')}</tr>
       </thead>
-      <tbody class="divide-y divide-slate-100">${rows.length?rows.map((r,i)=>`<tr class="hover:bg-slate-50 transition-colors">${cols.map(c=>{
-        const v=typeof c.get==='function'?c.get(r,i):r[c.key];
-        return `<td class="px-5 py-3.5 ${c.num?'text-right tabular-nums':''} ${c.cls||''}">${v??'<span class="text-slate-300">—</span>'}</td>`;
-      }).join('')}</tr>`).join(''):`<tr><td colspan="${cols.length}" class="px-4 py-12 text-center"><div class="text-slate-300 text-3xl mb-2">◌</div><div class="text-sm text-slate-400">${opts.empty||I18N.t('c4.common.noRecords')}</div></td></tr>`}</tbody>
-    </table></div>`;
+      <tbody class="divide-y divide-slate-100">${rows.length?rows.map((r,i)=>{
+        const cbCell=opts.checkbox?`<td class="pl-5 pr-2 py-4"><input type="checkbox" data-vcb="${esc(r.id||i)}" class="w-4 h-4 rounded border-slate-300 text-slate-900 accent-slate-900 cursor-pointer align-middle"></td>`:'';
+        return `<tr class="hover:bg-slate-50/70 transition-colors">${cbCell}${cols.map(c=>{
+          const v=typeof c.get==='function'?c.get(r,i):r[c.key];
+          return `<td class="px-5 py-4 ${c.num?'text-right tabular-nums':''} ${c.cls||''}">${v??'<span class="text-slate-300">—</span>'}</td>`;
+        }).join('')}</tr>`;}).join(''):`<tr><td colspan="${cols.length+(opts.checkbox?1:0)}" class="px-4 py-12 text-center"><div class="text-slate-300 text-3xl mb-2">◌</div><div class="text-sm text-slate-400">${opts.empty||I18N.t('c4.common.noRecords')}</div></td></tr>`}</tbody>
+    </table>
+    ${opts.pagination||''}</div>`;
+}
+/* Verola pagination: < 1 2 3 4 > + "Showing X to Y of Z" + per-page select.
+   Returns HTML; wire with vPaginateBind(root, onPage). */
+function vPaginationHTML(total, page, perPage){
+  const pages=Math.max(1, Math.ceil(total/perPage));
+  const from=total?((page-1)*perPage+1):0, to=Math.min(total, page*perPage);
+  let nums='';
+  for(let p=1;p<=pages;p++){
+    if(pages>7 && p>2 && p<pages-1 && Math.abs(p-page)>1){ if(!nums.endsWith('…')) nums+='<span class="px-1 text-slate-300">…</span>'; continue; }
+    nums+=`<button data-pg="${p}" class="min-w-[2rem] h-8 px-2 rounded-lg text-[13px] font-semibold transition ${p===page?'bg-slate-900 text-white shadow':'text-slate-500 hover:bg-slate-100'}">${p}</button>`;
+  }
+  return `<div class="flex flex-wrap items-center justify-between gap-3 px-5 py-4 border-t border-slate-100">
+    <div class="flex items-center gap-1.5">
+      <button data-pgprev class="w-8 h-8 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 flex items-center justify-center transition ${page<=1?'opacity-40 pointer-events-none':''}">‹</button>
+      ${nums}
+      <button data-pgnext class="w-8 h-8 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 flex items-center justify-center transition ${page>=pages?'opacity-40 pointer-events-none':''}">›</button>
+    </div>
+    <div class="flex items-center gap-3">
+      <span class="text-[13px] text-slate-400">Showing ${from} to ${to} of ${fmtNum(total)} entries</span>
+      <select data-pgper class="bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-[13px] text-slate-600 font-medium focus:outline-none cursor-pointer">
+        ${[8,16,50,100].map(n=>`<option value="${n}" ${n===perPage?'selected':''}>${n} - ${n===8?'50':n===16?'100':n}</option>`).join('')}
+      </select>
+    </div></div>`;
+}
+/* Bind pagination events. onChange(page, perPage) re-renders. */
+function vPaginateBind(root, onChange){
+  if(!root) return;
+  root.querySelectorAll('[data-pg]').forEach(b=>{ b.onclick=()=>onChange(parseInt(b.dataset.pg,10)); });
+  const pv=root.querySelector('[data-pgprev]'); if(pv) pv.onclick=()=>onChange('prev');
+  const nx=root.querySelector('[data-pgnext]'); if(nx) nx.onclick=()=>onChange('next');
+  const pp=root.querySelector('[data-pgper]'); if(pp) pp.onchange=()=>onChange('per', parseInt(pp.value,10));
+}
+/* Verola filter row: search + pill buttons. */
+function vFilterRow(searchPh, pills, extra=''){
+  return `<div class="flex flex-wrap items-center gap-2.5 mb-4">
+    <div class="relative">
+      <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" class="w-4 h-4"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></span>
+      <input data-vf-search placeholder="${esc(searchPh||'Search…')}" class="bg-white border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 focus:border-slate-400 focus:outline-none transition w-56">
+    </div>
+    ${pills.map(p=>`<button data-vf-pill="${esc(p.key)}" class="px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-sm font-medium text-slate-600 hover:border-slate-300 hover:bg-slate-50 transition flex items-center gap-2">${p.icon||''}${esc(p.label)}</button>`).join('')}
+    <div class="flex-1"></div>${extra}</div>`;
 }
 function statCard(label,value,sub='',accent='slate',icon='',raw=null,prefix=''){
   const chip={slate:'bg-slate-100 text-slate-500',teal:'bg-teal-50 text-teal-600',emerald:'bg-emerald-50 text-emerald-600',red:'bg-red-50 text-red-500',amber:'bg-amber-50 text-amber-500',blue:'bg-blue-50 text-blue-500',violet:'bg-violet-50 text-violet-500',cyan:'bg-cyan-50 text-cyan-600'}[accent]||'bg-slate-100 text-slate-500';
@@ -170,7 +219,14 @@ const btnS='px-4 py-2.5 rounded-xl bg-white border border-slate-200 hover:border
 const btnD='px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-semibold shadow active:scale-[.98] transition';
 function badge(text,color='slate'){
   const m={slate:'bg-slate-100 text-slate-600 ring-slate-200',emerald:'bg-emerald-50 text-emerald-700 ring-emerald-200',teal:'bg-teal-50 text-teal-700 ring-teal-200',red:'bg-red-50 text-red-600 ring-red-200',amber:'bg-amber-50 text-amber-700 ring-amber-200',blue:'bg-blue-50 text-blue-700 ring-blue-200',sky:'bg-sky-50 text-sky-700 ring-sky-200',violet:'bg-violet-50 text-violet-700 ring-violet-200',cyan:'bg-cyan-50 text-cyan-700 ring-cyan-200'};
-  return `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ring-1 ${m[color]||m.slate} whitespace-nowrap"><span class="w-1 h-1 rounded-full bg-current"></span>${esc(text)}</span>`;
+  /* Verola: status pills use ✓ for success / ◷ for pending, dot otherwise */
+  const ic=color==='emerald'?'✓':(color==='amber'?'◷':null);
+  const dot=ic?`<span class="text-[11px] leading-none">${ic}</span>`:`<span class="w-1 h-1 rounded-full bg-current"></span>`;
+  return `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ring-1 ${m[color]||m.slate} whitespace-nowrap">${dot}${esc(text)}</span>`;
+}
+/* Verola "..." actions button */
+function vActionsMenu(){
+  return `<button class="w-8 h-8 rounded-lg bg-white border border-slate-200 text-slate-500 hover:border-slate-300 hover:bg-slate-50 flex items-center justify-center transition text-base leading-none tracking-widest" data-vact>•••</button>`;
 }
 
 /* ---------- misc ---------- */
@@ -216,6 +272,7 @@ G.haversineM=haversineM;
 G.toast=toast; G.modal=modal; G.confirmDlg=confirmDlg;
 G.formVal=formVal; G.formNum=formNum; G.collectForm=collectForm; G.field=field;
 G.tableHTML=tableHTML; G.statCard=statCard; G.pageHead=pageHead; G.avatar=avatar;
+G.vPaginationHTML=vPaginationHTML; G.vPaginateBind=vPaginateBind; G.vFilterRow=vFilterRow; G.vActionsMenu=vActionsMenu;
 G.animateCounters=animateCounters; G.emptyState=emptyState;
 G.btnP=btnP; G.btnS=btnS; G.btnD=btnD; G.badge=badge;
 G.debounce=debounce; G.uid=uid; G.toCSV=toCSV; G.dlCSV=dlCSV; G.downloadCSV=downloadCSV;

@@ -14,13 +14,14 @@ function vShortRs(n){ n=Number(n)||0; const a=Math.abs(n);
 function vPct(cur, prev){ cur=Number(cur)||0; prev=Number(prev)||0;
   if(!prev) return null; return (cur-prev)/Math.abs(prev)*100; }
 function vKpi(label, value, pct, ico){
-  const up=(pct||0)>=0, arrow=up?'▲':'▼', col=up?'text-emerald-600':'text-red-500';
+  const up=(pct||0)>=0, arrow=up?'↗':'↘', col=up?'text-emerald-600':'text-red-500';
   const pt=(pct==null||!isFinite(pct))?'<span class="text-slate-300">—</span>'
     :`<span class="${col} font-semibold">${arrow} ${Math.abs(pct).toFixed(1)}%</span>`;
   return `<div class="bg-white rounded-2xl border border-slate-200/70 p-5 shadow-[0_1px_3px_rgba(15,23,42,.04)]">
     <div class="flex items-center gap-2.5 mb-4">
       <span class="w-9 h-9 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center shrink-0">${ico}</span>
       <span class="text-[13px] text-slate-500 font-medium">${label}</span>
+      <span class="ml-auto w-7 h-7 rounded-lg bg-slate-50 border border-slate-100 text-slate-400 text-sm font-bold flex items-center justify-center shrink-0 select-none">···</span>
     </div>
     <div class="text-[26px] font-bold text-slate-900 tabular-nums tracking-tight">${value}</div>
     <div class="text-xs text-slate-400 mt-1.5">${pt} <span class="ml-1">Last 30 days</span></div>
@@ -127,20 +128,23 @@ async function renderRunsDash(body, cid, canEdit, emps){
       <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
         <h3 class="font-bold text-slate-800 text-[15px]">Payroll cost trend</h3>
         <div class="flex gap-2 text-xs font-medium text-slate-600">
-          <span class="inline-flex items-center gap-1.5 bg-slate-50 border border-slate-200/70 rounded-lg px-2.5 py-1"><span class="w-2.5 h-2.5 rounded bg-amber-500"></span>Tax</span>
-          <span class="inline-flex items-center gap-1.5 bg-slate-50 border border-slate-200/70 rounded-lg px-2.5 py-1"><span class="w-2.5 h-2.5 rounded bg-sky-300"></span>Gross</span>
-          <span class="inline-flex items-center gap-1.5 bg-slate-50 border border-slate-200/70 rounded-lg px-2.5 py-1"><span class="w-2.5 h-2.5 rounded bg-blue-700"></span>Benefits</span>
+          <span class="inline-flex items-center gap-1.5 bg-slate-50 border border-slate-200/70 rounded-lg px-2.5 py-1"><span class="w-3 h-3 rounded-[4px] bg-amber-500"></span>Tax</span>
+          <span class="inline-flex items-center gap-1.5 bg-slate-50 border border-slate-200/70 rounded-lg px-2.5 py-1"><span class="w-3 h-3 rounded-[4px] bg-sky-300"></span>Gross</span>
+          <span class="inline-flex items-center gap-1.5 bg-slate-50 border border-slate-200/70 rounded-lg px-2.5 py-1"><span class="w-3 h-3 rounded-[4px] bg-blue-700"></span>Benefits</span>
         </div>
       </div>
       <div class="h-64"><canvas id="${cid}-trend"></canvas></div>
     </div>
     <div class="bg-white rounded-2xl border border-slate-200/70 p-6 shadow-[0_1px_3px_rgba(15,23,42,.04)]">
-      <h3 class="font-bold text-slate-800 text-[15px] mb-4">Deductions</h3>
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="font-bold text-slate-800 text-[15px]">Deductions</h3>
+        <span class="w-7 h-7 rounded-lg bg-slate-50 border border-slate-100 text-slate-400 text-sm font-bold flex items-center justify-center shrink-0 select-none">···</span>
+      </div>
       ${dedEntries.length?`
       <div class="relative w-44 h-44 mx-auto"><canvas id="${cid}-donut"></canvas>
         <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
           <span class="text-[11px] text-slate-400">Total</span>
-          <span class="text-lg font-bold text-slate-900 tabular-nums">${vShortRs(dedTotal)}</span>
+          <span class="text-lg font-bold text-slate-900 tabular-nums">Rs ${fmtNum(Math.round(dedTotal))}</span>
         </div>
       </div>
       <div class="mt-5 space-y-2.5">${dedEntries.map((e,i)=>`
@@ -167,6 +171,9 @@ async function renderRunsDash(body, cid, canEdit, emps){
       <select id="${cid}-fDept" class="bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 focus:outline-none">
         <option value="all">▤ Department</option>${depts.map(d=>`<option>${esc(d)}</option>`).join('')}
       </select>
+      <select id="${cid}-fPay" class="bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 focus:outline-none">
+        <option value="all">▦ Pay method</option><option>Bank transfer</option><option>Cash</option><option>Cheque</option>
+      </select>
       ${canEdit?`<button class="${btnS} ml-auto" id="${cid}-import">⤓ Import Data</button>`:''}
     </div>
     <div id="${cid}-tbl"></div>
@@ -174,19 +181,40 @@ async function renderRunsDash(body, cid, canEdit, emps){
   </div>`;
 
   /* ---- charts ---- */
+  /* Verola hover crosshair: dashed vertical line at the active tooltip x */
+  const vHoverLine={id:'vHoverLine',afterDraw(c){try{const a=c.tooltip;if(!a||!a.getActiveElements)return;const ae=a.getActiveElements();if(!ae.length)return;const x=ae[0].element.x;const g=c.ctx;g.save();g.setLineDash([5,5]);g.strokeStyle='#cbd5e1';g.lineWidth=1;g.beginPath();g.moveTo(x,c.scales.y.top);g.lineTo(x,c.scales.y.bottom);g.stroke();g.restore();}catch(e){}}};
+  function vLongMon(m){ try{ return new Date(m+'-01').toLocaleDateString('en',{month:'short',year:'numeric'}); }catch(e){ return m; } }
+  /* Verola tooltip: white card, dark title, dot + label + value rows */
+  const vTip={backgroundColor:'#ffffff',titleColor:'#0f172a',bodyColor:'#334155',footerColor:'#334155',
+    borderColor:'#e2e8f0',borderWidth:1,padding:12,cornerRadius:12,boxPadding:5,usePointStyle:true,
+    titleFont:{size:13,weight:'700',family:'inherit'},bodyFont:{size:12.5,family:'inherit'},
+    titleMarginBottom:8,caretSize:6};
   let trendChart=null;
   const drawTrend=(n)=>{
     const elc=document.getElementById(cid+'-trend'); if(!elc||typeof Chart==='undefined') return;
     if(trendChart) trendChart.destroy();
     const d=trend.slice(-n);
-    trendChart=new Chart(elc,{type:'line',
+    const tipCbs={title:items=>{const t=d[items[0].dataIndex];return t?vLongMon(t.month):'';},
+      label:c=>' '+c.dataset.label+'  '+vShortRs(c.parsed.y)};
+    const hexA=(hex,a)=>{const h=hex.replace('#','');const r=parseInt(h.slice(0,2),16),g=parseInt(h.slice(2,4),16),b=parseInt(h.slice(4,6),16);return `rgba(${r},${g},${b},${a})`;};
+    const ds=(label,data,color,fill)=>({label,data,borderColor:color,backgroundColor:fill?hexA(color,.12):'transparent',fill,tension:.4,pointRadius:0,pointHoverRadius:4.5,pointHoverBackgroundColor:color,pointHoverBorderColor:'#fff',pointHoverBorderWidth:2,borderWidth:2.2});
+    trendChart=new Chart(elc,{
+      type:'line',
+      plugins:[vHoverLine],
       data:{labels:d.map(t=>vMon(t.month)),datasets:[
-        {label:'Tax',data:d.map(t=>Math.round(t.tax)),borderColor:'#f59e0b',backgroundColor:'rgba(245,158,11,.10)',fill:true,tension:.35,pointRadius:3,pointBackgroundColor:'#f59e0b',borderWidth:2},
-        {label:'Gross',data:d.map(t=>Math.round(t.gross)),borderColor:'#7dd3fc',fill:false,tension:.35,pointRadius:3,pointBackgroundColor:'#7dd3fc',borderWidth:2},
-        {label:'Benefits',data:d.map(t=>Math.round(t.ben)),borderColor:'#1d4ed8',fill:false,tension:.35,pointRadius:3,pointBackgroundColor:'#1d4ed8',borderWidth:2}]},
-      options:{responsive:true,maintainAspectRatio:false,
-        plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>' '+c.dataset.label+' '+vShortRs(c.parsed.y)}}},
-        scales:{y:{ticks:{callback:v=>vShortRs(v),color:'#94a3b8',font:{size:11}},grid:{color:'#f1f5f9'}},x:{grid:{display:false},ticks:{color:'#94a3b8',font:{size:11}}}}}});
+        ds('Tax',d.map(t=>Math.round(t.tax)),'#f59e0b',true),
+        ds('Gross',d.map(t=>Math.round(t.gross)),'#7dd3fc',false),
+        ds('Benefits',d.map(t=>Math.round(t.ben)),'#1d4ed8',false)
+      ]},
+      options:{
+        responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+        plugins:{legend:{display:false},tooltip:Object.assign({},vTip,{callbacks:tipCbs})},
+        scales:{
+          y:{ticks:{callback:vShortRs,color:'#94a3b8',font:{size:11},padding:8},grid:{color:'#f1f5f9'},border:{display:false}},
+          x:{grid:{display:false},border:{display:false},ticks:{color:'#94a3b8',font:{size:11}}}
+        }
+      }
+    });
   };
   drawTrend(3);
   body.querySelectorAll('#'+cid+'-range [data-range]').forEach(b=>b.onclick=()=>{
@@ -198,9 +226,11 @@ async function renderRunsDash(body, cid, canEdit, emps){
   if(dEl&&typeof Chart!=='undefined'&&dedEntries.length){
     new Chart(dEl,{type:'doughnut',
       data:{labels:dedEntries.map(e=>e.name),datasets:[{data:dedEntries.map(e=>e.amt),
-        backgroundColor:dedEntries.map((_,i)=>V_DONUT_COLORS[i%V_DONUT_COLORS.length]),borderWidth:3,borderColor:'#fff'}]},
+        backgroundColor:dedEntries.map((_,i)=>V_DONUT_COLORS[i%V_DONUT_COLORS.length]),borderWidth:3,borderColor:'#fff',hoverOffset:4}]},
       options:{responsive:true,maintainAspectRatio:true,cutout:'76%',
-        plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>' '+c.label+': '+vShortRs(c.parsed)}}}}});
+        plugins:{legend:{display:false},tooltip:Object.assign({},vTip,{
+          callbacks:{title:items=>items[0]?items[0].label:'',
+            label:c=>` ${vShortRs(c.parsed)} (${dedTotal?Math.round(c.parsed/dedTotal*100):0}%)`}})}}});
   }
 
   /* ---- payslip table ---- */
@@ -248,9 +278,9 @@ async function renderRunsDash(body, cid, canEdit, emps){
         <td class="px-4 py-3"><div class="flex items-center gap-2.5">${vAvatar(s.employeeName)}<span class="font-medium text-slate-700 whitespace-nowrap">${esc(s.employeeName)}</span></div></td>
         <td class="px-4 py-3 text-slate-600 whitespace-nowrap">${esc(e.department||'—')}</td>
         <td class="px-4 py-3">${vStatus(s.paid)}</td>
-        <td class="px-4 py-3 text-right tabular-nums font-medium text-slate-700">${vShortRs(gross)}</td>
-        <td class="px-4 py-3 text-right tabular-nums font-medium text-red-500">-${vShortRs(ded)}</td>
-        <td class="px-4 py-3 text-right tabular-nums font-semibold text-emerald-600">${vShortRs(s.net)}</td>
+        <td class="px-4 py-3 text-right tabular-nums font-medium text-slate-700">Rs ${fmtNum(Math.round(gross))}</td>
+        <td class="px-4 py-3 text-right tabular-nums font-medium text-red-500">-Rs ${fmtNum(Math.round(ded))}</td>
+        <td class="px-4 py-3 text-right tabular-nums font-semibold text-emerald-600">Rs ${fmtNum(Math.round(s.net))}</td>
         <td class="px-4 py-3 text-right"><div class="relative inline-block">
           <button class="w-8 h-8 rounded-lg border border-slate-200 text-slate-400 hover:text-slate-600 hover:border-slate-300 font-bold" data-vmenu="${s.id}">…</button>
           <div class="hidden absolute right-0 mt-1 w-44 bg-white border border-slate-200 rounded-xl shadow-lg z-20 py-1" data-vm id="vm-${cid}-${s.id}">
@@ -300,6 +330,8 @@ async function renderRunsDash(body, cid, canEdit, emps){
   document.getElementById(cid+'-fRun').onchange=async e=>{ st.runId=e.target.value; st.page=1; await renderTable(); };
   document.getElementById(cid+'-fStatus').onchange=e=>{ st.status=e.target.value; st.page=1; renderTable(); };
   document.getElementById(cid+'-fDept').onchange=e=>{ st.dept=e.target.value; st.page=1; renderTable(); };
+  /* Pay method filter: visual only (backend has no pay-method field yet) */
+  document.getElementById(cid+'-fPay').onchange=()=>{ st.page=1; renderTable(); };
   await renderTable();
 
   /* export */

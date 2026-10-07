@@ -169,7 +169,7 @@ const Alerts = {
       </div>
       <div class="grid grid-cols-2 gap-2.5">
         ${[['alert_late','t3.evLate'],['alert_absent','t3.evAbsent'],['alert_leave_decision','t3.evLeave'],['alert_out_of_zone','t3.evZone'],['alert_checkin','Check-in (Slack)'],['alert_checkout','Check-out (Slack)']]
-          .map(([k,l])=>`<label class="flex items-center gap-2.5 text-sm text-slate-600 cursor-pointer bg-slate-50 hover:bg-slate-100 border border-slate-200/60 rounded-xl px-3.5 py-2.5 transition"><input type="checkbox" name="${k}" ${on(s[k])?'checked':''} ${dis} class="w-4 h-4 rounded accent-teal-600 shrink-0"> ${l.startsWith('t3.')?T(l):l}</label>`).join('')}
+          .map(([k,l])=>`<label class="flex items-center gap-2.5 text-sm text-slate-600 cursor-pointer bg-slate-50 hover:bg-slate-100 border border-slate-200/60 rounded-xl px-3.5 py-2.5 transition"><input type="checkbox" name="${k}" ${on(s[k])?'checked':''} ${dis} class="w-4 h-4 rounded accent-slate-900 shrink-0"> ${l.startsWith('t3.')?T(l):l}</label>`).join('')}
       </div>
       <div class="mt-4 max-w-[220px]">${field(T('t3.grace'),'absence_grace_minutes',{type:'number',min:0,value:s.absence_grace_minutes||60})}</div>
       <p class="text-[11px] text-slate-400 mt-1">${T('t3.graceHint')}</p>

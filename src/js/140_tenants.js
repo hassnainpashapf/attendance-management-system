@@ -8,14 +8,14 @@ App.nav.push({group:'SYSTEM', path:'#/tenants', label:I18N.t('c4.nav.tenants'), 
 /* ---------- Verola tokens (local copies) ---------- */
 function txTen(k, fb){ const v=I18N.t(k); return (v===k||!v)?fb:v; }
 function vTenAvatar(name){
-  const init=(String(name||'?').trim().split(/\s+/).map(w=>w[0]).join('')||'?').slice(0,2).toUpperCase();
-  return `<span class="w-8 h-8 rounded-full bg-slate-900 text-white text-[11px] font-bold inline-flex items-center justify-center shrink-0">${esc(init)}</span>`;
+  return avatar(name); /* global Verola avatar: light gray initials circle */
 }
 function vTenKpi(label, value, ico, sub){
   return `<div class="bg-white rounded-2xl border border-slate-200/70 p-5 shadow-[0_1px_3px_rgba(15,23,42,.04)]">
     <div class="flex items-center gap-2.5 mb-4">
       <span class="w-9 h-9 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center shrink-0">${ico}</span>
       <span class="text-[13px] text-slate-500 font-medium">${label}</span>
+      <span class="ml-auto w-7 h-7 rounded-lg bg-slate-50 border border-slate-100 text-slate-400 text-sm font-bold flex items-center justify-center shrink-0 select-none">···</span>
     </div>
     <div class="text-[26px] font-bold text-slate-900 tabular-nums tracking-tight">${value}</div>
     ${sub?`<div class="text-xs text-slate-400 mt-1.5">${sub}</div>`:''}
@@ -40,24 +40,18 @@ App.routes['#/tenants'] = async (el)=>{
       <div class="ml-auto"><button class="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold shadow active:scale-[.98] transition" id="${cid}-add">+ ${I18N.t('c4.ten.createTenant')}</button></div>
     </div>
     <div id="${cid}-stats" class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4 mb-5"></div>
-    <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.04)] overflow-hidden anim-fadeUp">
-      <div class="flex flex-wrap items-center gap-2.5 p-4 border-b border-slate-100">
-        <div class="relative flex-1 min-w-[180px] max-w-xs">
-          <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">⌕</span>
-          <input id="${cid}-q" placeholder="${I18N.t('c4.common.search')}..." class="w-full bg-white border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400 focus:outline-none">
-        </div>
-        <select id="${cid}-fStatus" class="bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 focus:outline-none">
-          <option value="all">▽ ${I18N.t('c4.common.all')}</option>
-          <option value="active">${I18N.t('c4.common.active')}</option>
-          <option value="trial">${I18N.t('c4.ten.trial')}</option>
-          <option value="suspended">Suspended</option>
-        </select>
+    <div class="flex flex-wrap items-center gap-2.5 mb-4 anim-fadeUp">
+      <div class="relative">
+        <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">⌕</span>
+        <input id="${cid}-q" placeholder="${I18N.t('c4.common.search')}..." class="bg-white border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 focus:border-slate-400 focus:outline-none transition w-56">
       </div>
-      <div id="${cid}-body"></div>
-    </div>`;
+      ${[['all',I18N.t('c4.common.all')],['active',I18N.t('c4.common.active')],['trial',I18N.t('c4.ten.trial')],['suspended','Suspended']].map(([v,l])=>
+        `<button data-tenf="${v}" class="px-4 py-2.5 rounded-xl text-sm font-medium transition border ${'all'===v?'bg-slate-900 text-white border-slate-900 shadow':'bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50'}">${l}</button>`).join('')}
+    </div>
+    <div id="${cid}-body"></div>`;
   const statsEl=document.getElementById(cid+'-stats');
   const body=document.getElementById(cid+'-body');
-  const st={q:'', f:'all', rows:[]};
+  const st={q:'', f:'all', rows:[], page:1, perPage:8};
 
   function planBadge(p){
     return p==='Growth'?badge(p,'teal'):p==='Enterprise'?badge(p,'blue'):badge(p||'Starter','slate');
@@ -75,27 +69,32 @@ App.routes['#/tenants'] = async (el)=>{
       if(st.f!=='all'&&t.status!==st.f) return false;
       return true;
     });
-    body.innerHTML=`<div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="border-b border-slate-100">
-      ${[I18N.t('c4.ten.colCompany'),I18N.t('c4.ten.colPlan'),I18N.t('c4.common.status'),I18N.t('c4.ten.colUsers'),I18N.t('c4.nav.employees'),I18N.t('c4.ten.colCreated')].map((h,i)=>
-        `<th class="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 whitespace-nowrap ${i>=3?'text-right':''}">${h}</th>`).join('')}
-      <th class="px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-slate-400">${txTen('c4.common.actions','')}</th></tr></thead>
-      <tbody class="divide-y divide-slate-50">${rows.length?rows.map(t=>`
-        <tr class="hover:bg-slate-50/70 transition-colors">
-          <td class="px-4 py-3"><div class="flex items-center gap-2.5">${vTenAvatar(t.companyName)}
-            <div><div class="font-medium text-slate-700 whitespace-nowrap">${esc(t.companyName)}</div>
-            <div class="text-xs text-slate-400 font-mono">${I18N.t('c4.ten.codeLabel')} ${esc(t.loginCode)}</div></div></div></td>
-          <td class="px-4 py-3">${planBadge(t.plan)}</td>
-          <td class="px-4 py-3">${statusBadge(t.status)}</td>
-          <td class="px-4 py-3 text-right tabular-nums font-medium text-slate-700">${fmtNum(t.users||0)}</td>
-          <td class="px-4 py-3 text-right tabular-nums font-medium text-slate-700">${fmtNum(t.employees||0)}</td>
-          <td class="px-4 py-3 text-right"><span class="tabular-nums text-slate-600">${fmtDate(t.createdAt)}</span></td>
-          <td class="px-4 py-3 text-right"><div class="flex gap-1.5 justify-end">
-            <button class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:border-slate-300 hover:bg-slate-50" data-imp="${t.tenantId}">${I18N.t('c4.ten.loginAs')}</button>
-            <button class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:border-slate-300 hover:bg-slate-50" data-edit="${t.tenantId}">${I18N.t('c4.common.edit')}</button>
-            <button class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-red-600 hover:border-red-200 hover:bg-red-50" data-del="${t.tenantId}">${I18N.t('c4.common.delete')}</button></div></td>
-        </tr>`).join(''):`<tr><td colspan="7" class="px-4 py-14 text-center"><div class="text-slate-300 text-3xl mb-2">◌</div><div class="text-sm text-slate-400">${I18N.t('c4.ten.emptyTenants')}</div></td></tr>`}
-      </tbody></table></div>
-      <div class="flex items-center px-4 py-3.5 border-t border-slate-100"><span class="text-xs text-slate-400">${txTen('c4.common.showingN','Showing {n} companies').replace('{n}',rows.length)}</span></div>`;
+    const total=rows.length;
+    const pages=Math.max(1,Math.ceil(total/st.perPage));
+    if(st.page>pages) st.page=pages;
+    const slice=rows.slice((st.page-1)*st.perPage, st.page*st.perPage);
+    body.innerHTML=tableHTML([
+      {label:I18N.t('c4.ten.colCompany'), get:t=>`<div class="flex items-center gap-2.5">${vTenAvatar(t.companyName)}
+        <div><div class="font-medium text-slate-700 whitespace-nowrap">${esc(t.companyName)}</div>
+        <div class="text-xs text-slate-400 font-mono">${I18N.t('c4.ten.codeLabel')} ${esc(t.loginCode)}</div></div></div>`},
+      {label:I18N.t('c4.ten.colPlan'), get:t=>planBadge(t.plan)},
+      {label:I18N.t('c4.common.status'), get:t=>statusBadge(t.status)},
+      {label:I18N.t('c4.ten.colUsers'), num:1, get:t=>`<span class="font-medium text-slate-700">${fmtNum(t.users||0)}</span>`},
+      {label:I18N.t('c4.nav.employees'), num:1, get:t=>`<span class="font-medium text-slate-700">${fmtNum(t.employees||0)}</span>`},
+      {label:I18N.t('c4.ten.colCreated'), num:1, get:t=>`<span class="text-slate-600">${fmtDate(t.createdAt)}</span>`},
+      {label:'', nosort:1, get:t=>`<div class="flex gap-1.5 justify-end">
+        <button class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:border-slate-300 hover:bg-slate-50" data-imp="${t.tenantId}">${I18N.t('c4.ten.loginAs')}</button>
+        <button class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:border-slate-300 hover:bg-slate-50" data-edit="${t.tenantId}">${I18N.t('c4.common.edit')}</button>
+        <button class="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-red-600 hover:border-red-200 hover:bg-red-50" data-del="${t.tenantId}">${I18N.t('c4.common.delete')}</button></div>`},
+    ], slice, {empty:I18N.t('c4.ten.emptyTenants'), checkbox:true,
+      pagination:vPaginationHTML(total, st.page, st.perPage)});
+    vPaginateBind(body, (p, v)=>{
+      if(p==='prev') st.page=Math.max(1,st.page-1);
+      else if(p==='next') st.page=Math.min(pages,st.page+1);
+      else if(p==='per'){ st.perPage=v; st.page=1; }
+      else st.page=p;
+      render();
+    });
     body.querySelectorAll('[data-imp]').forEach(b=>b.onclick=async()=>{
       const r=await API.call('impersonate',b.dataset.imp);
       Session.savedUser=Session.user;
@@ -159,8 +158,15 @@ App.routes['#/tenants'] = async (el)=>{
       m.close(); toast(I18N.t('c4.ten.tenantCreated').replace('{company}',d.companyName).replace('{code}',t.loginCode),'success'); load();
     };
   };
-  document.getElementById(cid+'-q').oninput=debounce(e=>{ st.q=e.target.value; render(); },300);
-  document.getElementById(cid+'-fStatus').onchange=e=>{ st.f=e.target.value; render(); };
+  document.getElementById(cid+'-q').oninput=debounce(e=>{ st.q=e.target.value; st.page=1; render(); },300);
+  el.querySelectorAll('[data-tenf]').forEach(b=>b.onclick=()=>{
+    st.f=b.dataset.tenf; st.page=1;
+    el.querySelectorAll('[data-tenf]').forEach(x=>{
+      const on=x.dataset.tenf===st.f;
+      x.className=`px-4 py-2.5 rounded-xl text-sm font-medium transition border ${on?'bg-slate-900 text-white border-slate-900 shadow':'bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50'}`;
+    });
+    render();
+  });
   await load();
 };
 })();

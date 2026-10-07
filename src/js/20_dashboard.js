@@ -10,14 +10,18 @@ App.nav.push({group:'MAIN', path:'#/dashboard', label:I18N.t('c4.nav.dashboard')
 function dPct(cur, prev){ cur=Number(cur)||0; prev=Number(prev)||0;
   if(!prev) return null; return (cur-prev)/Math.abs(prev)*100; }
 function dKpi(label, value, raw, pct, sub, ico){
-  const up=(pct||0)>=0, arrow=up?'▲':'▼', col=up?'text-emerald-600':'text-red-500';
+  const up=(pct||0)>=0, arrow=up?'↗':'↘';
+  const pill=up
+    ?'bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100'
+    :'bg-red-50 text-red-600 ring-1 ring-red-100';
   const tr=(pct==null||!isFinite(pct))
     ?`<span class="text-slate-400">${esc(sub||'')}</span>`
-    :`<span class="${col} font-semibold">${arrow} ${Math.abs(pct).toFixed(1)}%</span> <span class="ml-1 text-slate-400">vs last week</span>`;
+    :`<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold ${pill}">${arrow} ${Math.abs(pct).toFixed(1)}%</span> <span class="ml-1.5 text-slate-400">vs last week</span>`;
   return `<div class="bg-white rounded-2xl border border-slate-200/70 p-5 shadow-[0_1px_3px_rgba(15,23,42,.04)]">
     <div class="flex items-center gap-2.5 mb-4">
       <span class="w-9 h-9 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center shrink-0">${ico}</span>
       <span class="text-[13px] text-slate-500 font-medium">${label}</span>
+      <span class="ml-auto w-7 h-7 rounded-lg bg-slate-50 border border-slate-100 text-slate-400 text-sm font-bold flex items-center justify-center shrink-0 select-none">···</span>
     </div>
     <div class="text-[26px] font-bold text-slate-900 tabular-nums tracking-tight" data-countup="${raw}">${value}</div>
     <div class="text-xs mt-1.5">${tr}</div>
@@ -49,18 +53,23 @@ function drawPresence(canvasId, trend, days){
   if(!c || typeof Chart==='undefined') return;
   if(c._chart) c._chart.destroy();
   const pts=(trend||[]).slice(-days);
+  const vHover={id:'vHoverLine',afterDraw(ch){try{const a=ch.tooltip;if(!a||!a.getActiveElements)return;const ae=a.getActiveElements();if(!ae.length)return;const x=ae[0].element.x;const g=ch.ctx;g.save();g.setLineDash([5,5]);g.strokeStyle='#cbd5e1';g.lineWidth=1;g.beginPath();g.moveTo(x,ch.scales.y.top);g.lineTo(x,ch.scales.y.bottom);g.stroke();g.restore();}catch(e){}}};
   c._chart=new Chart(c,{
-    type:'line',
+    type:'line',plugins:[vHover],
     data:{labels:pts.map(p=>fmtDate(p.d).replace(/^0/,'')), datasets:[{
       label:I18N.t('c4.dash.chartPresent'), data:pts.map(p=>Number(p.present)||0),
       borderColor:'#1d4ed8', backgroundColor:'rgba(29,78,216,.08)', fill:true,
-      tension:.35, pointRadius:3, pointBackgroundColor:'#1d4ed8', borderWidth:2
+      tension:.4, pointRadius:0, pointHoverRadius:4.5, pointHoverBackgroundColor:'#1d4ed8',
+      pointHoverBorderColor:'#fff', pointHoverBorderWidth:2, borderWidth:2.2
     }]},
-    options:{responsive:true, maintainAspectRatio:false,
+    options:{responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
       plugins:{legend:{display:false},
-        tooltip:{callbacks:{label:ctx=>' '+fmtNum(ctx.parsed.y)+' '+I18N.t('c4.dash.chartPresent').toLowerCase()}}},
-      scales:{y:{beginAtZero:true, ticks:{precision:0, color:'#94a3b8', font:{size:11}}, grid:{color:'#f1f5f9'}},
-              x:{grid:{display:false}, ticks:{color:'#94a3b8', font:{size:11}}}}}
+        tooltip:{backgroundColor:'#ffffff',titleColor:'#0f172a',bodyColor:'#334155',
+          borderColor:'#e2e8f0',borderWidth:1,padding:12,cornerRadius:12,boxPadding:5,usePointStyle:true,
+          titleFont:{size:13,weight:'700'},bodyFont:{size:12.5},
+          callbacks:{label:ctx=>' '+fmtNum(ctx.parsed.y)+' '+I18N.t('c4.dash.chartPresent').toLowerCase()}}},
+      scales:{y:{beginAtZero:true, ticks:{precision:0, color:'#94a3b8', font:{size:11}, padding:8}, grid:{color:'#f1f5f9'}, border:{display:false}},
+              x:{grid:{display:false}, border:{display:false}, ticks:{color:'#94a3b8', font:{size:11}}}}}
   });
 }
 
