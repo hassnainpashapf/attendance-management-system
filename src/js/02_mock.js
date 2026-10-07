@@ -547,6 +547,8 @@ const MockAPI = {
   listMessageLog(){ return DB.messageLog.slice().reverse(); },
   resendAlert(id){ const m=DB.messageLog.find(x=>x.id===id); if(m) m.status='pending-config'; return {ok:true}; },
   testAlert(){ return {ok:true, status:'pending-config'}; },
+  getZktSettings(){ return {zkt_enabled:'0', zkt_device_id:'', zkt_api_key:'', zkt_last_sync:'', webhookUrl:'https://mock/webhook'}; },
+  saveZktSettings(){ return {ok:true}; },
   /* Phase 2: geofence auto-punch */
   setAutoPunch(employeeId, on){ const f=DB.employeeFlags.find(x=>String(x.employeeId)===String(employeeId)); if(f) f.autoPunch=!!on; else DB.employeeFlags.push({employeeId:String(employeeId), autoPunch:!!on, updatedAt:todayISO()}); return {ok:true, autoPunch:!!on}; },
   getAutoPunch(employeeId){ const f=DB.employeeFlags.find(x=>String(x.employeeId)===String(employeeId)); return {autoPunch:f?!!f.autoPunch:true}; },

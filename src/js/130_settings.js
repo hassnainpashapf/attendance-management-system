@@ -29,6 +29,11 @@ App.routes['#/settings'] = async (el)=>{
         <div id="${cid}-smtp"></div>
       </div>
       <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.05)] p-6">
+        <h3 class="font-display font-bold text-slate-800 mb-1">ZKTeco biometric device</h3>
+        <p class="text-sm text-slate-400 mb-5">Connect a ZKTeco fingerprint/face device. Punches from the device appear in attendance automatically.</p>
+        <div id="${cid}-zkt"></div>
+      </div>
+      <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.05)] p-6">
         <h3 class="font-display font-bold text-slate-800 mb-1">Sign-in options</h3>
         <div class="flex items-start gap-3 mt-4">
           <div class="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold shrink-0">G</div>
@@ -91,6 +96,41 @@ App.routes['#/settings'] = async (el)=>{
     ${canEdit?`<button class="${btnP} mt-5" id="${cid}-saveSmtp">Save SMTP settings</button>`:''}`;
   const ss=document.getElementById(cid+'-saveSmtp');
   if(ss) ss.onclick=async()=>{ await API.call('saveSettings',collectForm(smtp)); toast('SMTP settings saved','success'); };
+
+  /* ZKTeco device settings */
+  const zk=document.getElementById(cid+'-zkt');
+  if(zk){
+    let z={};
+    try{ z=await API.call('getZktSettings'); }catch(e){ z={}; }
+    zk.innerHTML=`
+      <div class="rounded-xl border border-slate-200/70 p-4 mb-4">
+        <div class="flex items-center gap-2 mb-3">
+          <span class="text-base">🔐</span><span class="font-semibold text-slate-700 text-sm">Device connection</span>
+          <label class="ml-auto inline-flex items-center gap-2 text-xs text-slate-500 cursor-pointer">
+            <input type="checkbox" name="zkt_enabled" ${z.zkt_enabled==='1'||z.zkt_enabled===1?'checked':''} ${canEdit?'':'disabled'} class="w-4 h-4 rounded accent-teal-600"> Enabled
+          </label>
+        </div>
+        <div class="grid grid-cols-2 gap-4">
+          <div>${field('Device ID','zkt_device_id',{value:z.zkt_device_id||'',ph:'e.g. ZKT-Office-01'})}</div>
+          <div>${field('API key','zkt_api_key',{type:'password',value:z.zkt_api_key||'',ph:'secret key for the device'})}</div>
+        </div>
+        <p class="text-[11px] text-slate-400 mt-2">Point your ZKTeco device (ADMS push) or middleware script at the webhook URL below with this device ID + API key. Employee codes on the device must match employee codes here.</p>
+      </div>
+      <div class="rounded-xl bg-slate-50 border border-slate-200/70 p-4 mb-4">
+        <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Webhook URL (POST JSON here)</div>
+        <code class="block text-[11px] text-slate-600 break-all bg-white border border-slate-200 rounded-lg p-2.5">${esc(z.webhookUrl||'')}</code>
+        <div class="text-[11px] text-slate-400 mt-2">Payload: <code>{"zkt":1,"deviceId":"…","apiKey":"…","punches":[{"empCode":"E001","time":"2026-10-07 09:00:00","type":"in"}]}</code></div>
+        ${z.zkt_last_sync?`<div class="text-[11px] text-slate-400 mt-1">Last sync: ${esc(z.zkt_last_sync)}</div>`:''}
+      </div>
+      ${canEdit?`<button class="${btnP}" id="${cid}-saveZkt">Save ZKTeco settings</button>`:''}`;
+    const sz=document.getElementById(cid+'-saveZkt');
+    if(sz) sz.onclick=async()=>{
+      const d=collectForm(zk);
+      d.zkt_enabled=zk.querySelector('[name="zkt_enabled"]').checked?'1':'0';
+      await API.call('saveZktSettings',d);
+      toast('ZKTeco settings saved','success');
+    };
+  }
 
   const bb=document.getElementById(cid+'-backup');
   if(bb) bb.onclick=async()=>{
