@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Attendance Management System</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  body{font-family:'Plus Jakarta Sans','Inter',system-ui,sans-serif;-webkit-font-smoothing:antialiased;}
+  .font-display{font-family:'Plus Jakarta Sans','Inter',system-ui,sans-serif;}
+  ::selection{background:#99f6e4;color:#134e4a;}
+  @keyframes fadeUp{from{transform:translateY(10px);opacity:0}to{transform:none;opacity:1}}
+  @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+  @keyframes scaleIn{from{transform:scale(.96) translateY(8px);opacity:0}to{transform:none;opacity:1}}
+  @keyframes slideIn{from{transform:translateX(20px);opacity:0}to{transform:none;opacity:1}}
+  @keyframes shimmer{from{background-position:-400px 0}to{background-position:400px 0}}
+  @keyframes drift{0%,100%{transform:translate(0,0) scale(1)}50%{transform:translate(40px,-30px) scale(1.15)}}
+  @keyframes pulseDot{0%,100%{opacity:1}50%{opacity:.4}}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .anim-fadeUp{animation:fadeUp .35s cubic-bezier(.21,.9,.35,1) both}
+  .anim-fadeIn{animation:fadeIn .25s ease both}
+  .anim-scaleIn{animation:scaleIn .22s cubic-bezier(.21,.9,.35,1) both}
+  .shimmer{background:linear-gradient(90deg,#f1f5f9 25%,#e8eef4 50%,#f1f5f9 75%);background-size:800px 100%;animation:shimmer 1.3s infinite linear}
+  .blob{animation:drift 9s ease-in-out infinite}
+  .pulse-dot{animation:pulseDot 1.6s ease-in-out infinite}
+  .spinner{width:18px;height:18px;border:2.5px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite;display:inline-block}
+  kbd.k{font-family:'Inter',sans-serif;font-size:10px;background:#f1f5f9;border:1px solid #e2e8f0;border-bottom-width:2px;border-radius:6px;padding:1px 6px;color:#64748b;font-weight:600}
+  ::-webkit-scrollbar{width:9px;height:9px}
+  ::-webkit-scrollbar-track{background:transparent}
+  ::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:99px;border:2px solid transparent;background-clip:content-box}
+  ::-webkit-scrollbar-thumb:hover{background:#94a3b8;border:2px solid transparent;background-clip:content-box}
+  input[type=number]{-moz-appearance:textfield}
+  input[type=number]::-webkit-inner-spin-button{opacity:1}
+  .card-hover{transition:transform .18s ease,box-shadow .18s ease,border-color .18s ease}
+  .card-hover:hover{transform:translateY(-2px);box-shadow:0 12px 24px -12px rgba(15,23,42,.18)}
+  .login-pattern{background-image:radial-gradient(rgba(255,255,255,.14) 1.5px,transparent 1.5px);background-size:22px 22px}
+  .leaflet-container{font-family:'Plus Jakarta Sans',sans-serif;z-index:0;border-radius:1rem;}
+  .leaflet-pane{z-index:2!important;}
+  .leaflet-top,.leaflet-bottom{z-index:3!important;}
+  @media print{ aside,header,#toasts{display:none!important} }
+</style>
+</head>
+<body>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<!-- APP_JS -->
+</body>
+</html>
