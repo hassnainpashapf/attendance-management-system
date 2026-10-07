@@ -20,7 +20,7 @@ Login form fields: **Company code** + username + password.
 
 ## API functions (Code.gs `API` object, frontend `API.call('name', ...)`, frontend `MockAPI.name(...)`)
 Auth: login, getBootstrap, impersonate, stopImpersonation
-Superadmin: listTenants, createTenant, updateTenant, deleteTenant, getTenantStats
+Superadmin: listTenants, createTenant, updateTenant, deleteTenant, getTenantStats, getPlatformStats
 Employees: listEmployees, saveEmployee, deleteEmployee, importEmployeesCSV, listDepartments, saveDepartment, deleteDepartment, bindDevice, unbindDevice
 Sites: listSites, saveSite, deleteSite, assignSiteEmployees
 Shifts: listShifts, saveShift, deleteShift, listRosters, saveRoster, deleteRoster
@@ -45,6 +45,17 @@ Settings: getSettings, saveSettings, backupNow, listRolePermissions, saveRolePer
 - `backupNow()` → DriveApp copy of tenant spreadsheet, returns `{url, name}`.
 - `createTenant(companyName, plan, adminName, adminUser, adminPass)`: SpreadsheetApp.create →
   seed all tenant tabs → create admin user → register in registry tenants (loginCode derived).
+  Returns `{tenantId, loginCode, spreadsheetId, url}` (note: no `companyName`, no `id`).
+- Tenant identifier contract (2026-10-07 fix): the registry `tenants` tab has NO `id` column —
+  the identifier key is **`tenantId`** everywhere. `listTenants()` returns rows keyed by `tenantId`;
+  `impersonate(tenantId)`, `updateTenant(tenantId, fields)`, `deleteTenant(tenantId)` match on
+  `x.tenantId === tenantId` and throw `Tenant not found` otherwise. Frontend and MockAPI must
+  use `t.tenantId`, never `t.id`, for tenant rows.
+- `getTenantStats(tenantId)` is PER-TENANT (requires a tenantId; throws `Tenant not found` without
+  a match) → `{tenant, employees, users, sites, punchesToday, pendingLeaves, pendingCorrections, openAdvances}`.
+- `getPlatformStats()` (no args, superadmin) is the platform-wide rollup for the Tenants page stat
+  cards → `{tenants, active, trial, totalEmployees, totalPunches}`. The Tenants page must call
+  `getPlatformStats`, never bare `getTenantStats()`.
 - Every mutating fn writes an auditLog row.
 
 ## Tenant tabs (SHEETS map)

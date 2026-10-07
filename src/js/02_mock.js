@@ -6,9 +6,9 @@
 /* ---------------- seed data ---------------- */
 const DB = {
   tenants:[
-    {id:'t_demo', companyName:'Demo Construction Co', loginCode:'DEMO', plan:'Growth', status:'active', createdAt:'2026-01-10', users:11, employees:10, punches:1840},
-    {id:'t_acme', companyName:'Acme Logistics Ltd', loginCode:'ACME', plan:'Starter', status:'active', createdAt:'2026-03-02', users:4, employees:22, punches:3120},
-    {id:'t_nova', companyName:'Nova Retail Group', loginCode:'NOVA', plan:'Growth', status:'trial', createdAt:'2026-09-18', users:2, employees:6, punches:210},
+    {tenantId:'t_demo', companyName:'Demo Construction Co', loginCode:'DEMO', plan:'Growth', status:'active', createdAt:'2026-01-10', users:11, employees:10, punches:1840},
+    {tenantId:'t_acme', companyName:'Acme Logistics Ltd', loginCode:'ACME', plan:'Starter', status:'active', createdAt:'2026-03-02', users:4, employees:22, punches:3120},
+    {tenantId:'t_nova', companyName:'Nova Retail Group', loginCode:'NOVA', plan:'Growth', status:'trial', createdAt:'2026-09-18', users:2, employees:6, punches:210},
   ],
   users:[
     {id:'u_admin', name:'Admin User', username:'admin', password:'admin123', role:'admin', employeeId:'e3', tenantId:'t_demo'},
@@ -179,13 +179,13 @@ const MockAPI = {
     }
     const t=DB.tenants.find(x=>x.loginCode===cc&&x.status!=='suspended');
     if(!t) throw new Error('Unknown company code');
-    const u=DB.users.find(x=>x.username===username&&x.password===password&&x.tenantId===t.id);
+    const u=DB.users.find(x=>x.username===username&&x.password===password&&x.tenantId===t.tenantId);
     if(!u) throw new Error('Invalid username or password');
-    return {user:{id:u.id,name:u.name,username:u.username,role:u.role,tenantId:t.id,employeeId:u.employeeId}, token:'tok_'+u.id};
+    return {user:{id:u.id,name:u.name,username:u.username,role:u.role,tenantId:t.tenantId,employeeId:u.employeeId}, token:'tok_'+u.id};
   },
   getBootstrap(){
     const u=Session.user||{};
-    const t=DB.tenants.find(x=>x.id===u.tenantId);
+    const t=DB.tenants.find(x=>x.tenantId===u.tenantId);
     const role=u.role||'employee';
     /* mirror Code.gs getBootstrap: superadmin gets {all:true}, not a tenant matrix */
     const matrix=role==='superadmin'?{all:true}:(DB.rolePermissions[role]||DB.rolePermissions.employee);
@@ -197,24 +197,26 @@ const MockAPI = {
     };
   },
   impersonate(tenantId){
-    const t=DB.tenants.find(x=>x.id===tenantId); if(!t) throw new Error('Tenant not found');
-    return {user:{id:'imp_'+t.id, name:'Admin ('+t.companyName+')', username:'admin', role:'admin', tenantId:t.id}, token:'tok_imp_'+t.id};
+    const t=DB.tenants.find(x=>x.tenantId===tenantId); if(!t) throw new Error('Tenant not found');
+    return {user:{id:'imp_'+t.tenantId, name:'Admin ('+t.companyName+')', username:'admin', role:'admin', tenantId:t.tenantId}, token:'tok_imp_'+t.tenantId};
   },
   stopImpersonation(){ return {ok:true}; },
 
   /* Superadmin */
   listTenants(){ return DB.tenants.map(t=>({...t})); },
   createTenant(companyName, plan, adminName, adminUser, adminPass){
-    const id='t_'+Date.now().toString(36);
+    const tenantId='t_'+Date.now().toString(36);
     const code=String(companyName||'').replace(/[^A-Za-z]/g,'').slice(0,4).toUpperCase()||'NEWC';
-    const t={id, companyName, loginCode:code, plan:plan||'Starter', status:'trial', createdAt:todayISO(), users:1, employees:0, punches:0};
+    const t={tenantId, companyName, loginCode:code, plan:plan||'Starter', status:'trial', createdAt:todayISO(), users:1, employees:0, punches:0};
     DB.tenants.push(t);
-    DB.users.push({id:uid('u'), name:adminName, username:adminUser, password:adminPass, role:'admin', employeeId:'', tenantId:id});
-    return t;
+    DB.users.push({id:uid('u'), name:adminName, username:adminUser, password:adminPass, role:'admin', employeeId:'', tenantId});
+    return {tenantId, companyName, loginCode:code, spreadsheetId:'', url:''};
   },
-  updateTenant(id, patch){ const t=DB.tenants.find(x=>x.id===id); if(!t) throw new Error('Tenant not found'); Object.assign(t,patch||{}); return t; },
-  deleteTenant(id){ const i=DB.tenants.findIndex(x=>x.id===id); if(i<0) throw new Error('Tenant not found'); DB.tenants.splice(i,1); return {ok:true}; },
-  getTenantStats(){ return {tenants:DB.tenants.length, active:DB.tenants.filter(t=>t.status==='active').length, trial:DB.tenants.filter(t=>t.status==='trial').length, totalEmployees:DB.tenants.reduce((a,t)=>a+(t.employees||0),0), totalPunches:DB.tenants.reduce((a,t)=>a+(t.punches||0),0)}; },
+  updateTenant(id, patch){ const t=DB.tenants.find(x=>x.tenantId===id); if(!t) throw new Error('Tenant not found'); Object.assign(t,patch||{}); return t; },
+  deleteTenant(id){ const i=DB.tenants.findIndex(x=>x.tenantId===id); if(i<0) throw new Error('Tenant not found'); DB.tenants.splice(i,1); return {ok:true}; },
+  getTenantStats(tenantId){ const t=DB.tenants.find(x=>x.tenantId===tenantId); if(!t) throw new Error('Tenant not found');
+    return {tenant:{...t}, employees:t.employees||0, users:t.users||0, sites:0, punchesToday:0, pendingLeaves:0, pendingCorrections:0, openAdvances:0}; },
+  getPlatformStats(){ return {tenants:DB.tenants.length, active:DB.tenants.filter(t=>t.status==='active').length, trial:DB.tenants.filter(t=>t.status==='trial').length, totalEmployees:DB.tenants.reduce((a,t)=>a+(t.employees||0),0), totalPunches:DB.tenants.reduce((a,t)=>a+(t.punches||0),0)}; },
 
   /* Employees */
   listEmployees(){ return DB.employees.map(e=>({...e, department:(DB.departments.find(d=>d.id===e.departmentId)||{}).name||'—'})); },

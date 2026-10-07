@@ -410,6 +410,26 @@ var API = {
     };
   },
 
+  getPlatformStats: function (user) {
+    requireSuper_(user);
+    var tenants = rows_('tenants');
+    var totalEmp = 0, totalPunches = 0;
+    tenants.forEach(function (tn) {
+      try {
+        var tss = SpreadsheetApp.openById(tn.spreadsheetId);
+        totalEmp += trows_(tss, 'employees').filter(function (e) { return bool_(e.active); }).length;
+        totalPunches += trows_(tss, 'attendance').length;
+      } catch (e) {}
+    });
+    return {
+      tenants: tenants.length,
+      active: tenants.filter(function (x) { return x.status === 'active'; }).length,
+      trial: tenants.filter(function (x) { return x.status === 'trial'; }).length,
+      totalEmployees: totalEmp,
+      totalPunches: totalPunches
+    };
+  },
+
   /* ---------------- employees ---------------- */
   listEmployees: function (user, filters) {
     requireUser_(user);

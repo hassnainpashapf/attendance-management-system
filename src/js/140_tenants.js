@@ -18,7 +18,7 @@ App.routes['#/tenants'] = async (el)=>{
   const body=document.getElementById(cid+'-body');
 
   async function load(){
-    const stats=await API.call('getTenantStats');
+    const stats=await API.call('getPlatformStats');
     const rows=await API.call('listTenants');
     statsEl.innerHTML=
       statCard('Tenants',fmtNum(stats.tenants),'Total companies','teal',App.ICONS.tenants,stats.tenants)+
@@ -35,9 +35,9 @@ App.routes['#/tenants'] = async (el)=>{
       {label:'Employees', num:1, get:t=>fmtNum(t.employees||0)},
       {label:'Created', get:t=>fmtDate(t.createdAt)},
       {label:'', get:t=>`<div class="flex gap-1 justify-end">
-        <button class="${btnS} !px-3 !py-1.5 !text-xs" data-imp="${t.id}">Login as</button>
-        <button class="${btnS} !px-3 !py-1.5 !text-xs" data-edit="${t.id}">Edit</button>
-        <button class="${btnS} !px-3 !py-1.5 !text-xs !text-red-600" data-del="${t.id}">Delete</button></div>`},
+        <button class="${btnS} !px-3 !py-1.5 !text-xs" data-imp="${t.tenantId}">Login as</button>
+        <button class="${btnS} !px-3 !py-1.5 !text-xs" data-edit="${t.tenantId}">Edit</button>
+        <button class="${btnS} !px-3 !py-1.5 !text-xs !text-red-600" data-del="${t.tenantId}">Delete</button></div>`},
     ], rows, {empty:'No tenants yet.'});
     body.querySelectorAll('[data-imp]').forEach(b=>b.onclick=async()=>{
       const r=await API.call('impersonate',b.dataset.imp);
@@ -48,7 +48,7 @@ App.routes['#/tenants'] = async (el)=>{
       location.hash='#/dashboard'; App.boot();
     });
     body.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{
-      const t=rows.find(x=>x.id===b.dataset.edit);
+      const t=rows.find(x=>x.tenantId===b.dataset.edit);
       const m=modal('Edit Tenant',`
         ${field('Company name','companyName',{value:t.companyName,req:true})}
         <div class="grid grid-cols-2 gap-4 mt-4">
@@ -58,7 +58,7 @@ App.routes['#/tenants'] = async (el)=>{
         <div class="flex justify-end gap-2 mt-6"><button class="${btnS}" id="tCancel">Cancel</button><button class="${btnP}" id="tSave">Save</button></div>`);
       m.el.querySelector('#tCancel').onclick=()=>m.close();
       m.el.querySelector('#tSave').onclick=async()=>{
-        await API.call('updateTenant',t.id,collectForm(m.el)); m.close(); toast('Tenant updated','success'); load();
+        await API.call('updateTenant',t.tenantId,collectForm(m.el)); m.close(); toast('Tenant updated','success'); load();
       };
     });
     body.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{
@@ -82,7 +82,7 @@ App.routes['#/tenants'] = async (el)=>{
       const d=collectForm(m.el);
       if(!d.companyName||!d.adminName||!d.adminUser||!d.adminPass){ toast('Fill all fields','warn'); return; }
       const t=await API.call('createTenant',d.companyName,d.plan,d.adminName,d.adminUser,d.adminPass);
-      m.close(); toast('Tenant "'+t.companyName+'" created — login code '+t.loginCode,'success'); load();
+      m.close(); toast('Tenant "'+d.companyName+'" created — login code '+t.loginCode,'success'); load();
     };
   };
   await load();
