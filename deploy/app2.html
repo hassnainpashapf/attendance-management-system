@@ -641,6 +641,8 @@ App.routes['#/debug'] = async function(el){
     var m = String(navHtml).match(/<a href="#\/rules"[\s\S]*?<\/a>/);
     if (m) rulesAnchor = m[0];
   } catch(e){ rulesAnchor = 'err: '+e.message; }
+  /* template reconstruction removed; instead: direct link to open #/rules page */
+  var openRulesBtn = '<p class="mt-4"><a href="#/rules" class="px-4 py-2 bg-teal-600 text-white rounded-xl text-sm font-semibold">Open HR Rules page (#/rules)</a></p>';
   el.innerHTML = '<div class="p-6 max-w-4xl"><h1 class="text-xl font-bold mb-2">Debug</h1>' +
     '<h2 class="font-bold mt-4 mb-1">Nav items (' + App.nav.length + ')</h2>' +
     '<pre class="text-xs bg-slate-100 p-3 rounded overflow-auto">' + navLines.replace(/</g,'&lt;') + '</pre>' +
@@ -650,6 +652,8 @@ App.routes['#/debug'] = async function(el){
     '<pre class="text-xs bg-slate-100 p-3 rounded overflow-auto">navHtml length=' + navLen + ' | contains #/rules: ' + hasRules + '</pre>' +
     '<h2 class="font-bold mt-4 mb-1">Full #/rules anchor HTML</h2>' +
     '<pre class="text-xs bg-slate-100 p-3 rounded overflow-auto">' + String(rulesAnchor).replace(/</g,'&lt;') + '</pre>' +
+    '<h2 class="font-bold mt-4 mb-1">Template reconstruction</h2>' +
+    String(openRulesBtn) + '</div>';
     '<h2 class="font-bold mt-4 mb-1">#/rules filter diagnosis</h2>' +
     '<pre class="text-xs bg-slate-100 p-3 rounded overflow-auto">' + String(diag).replace(/</g,'&lt;') + '\n' + String(liveFilter).replace(/</g,'&lt;') + '</pre>' +
     '<h2 class="font-bold mt-4 mb-1">Per-item map test (does I18N.t throw?)</h2>' +
