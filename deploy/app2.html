@@ -594,11 +594,15 @@ App.routes['#/debug'] = async function(el){
   }).join('\n');
   var perms = {};
   try { perms = (Session.bootstrap||{}).permissions || {}; } catch(e){}
+  var navHtml = '';
+  try { navHtml = (document.getElementById('nav')||{}).innerHTML || '(no #nav)'; } catch(e){ navHtml = 'err: '+e.message; }
   el.innerHTML = '<div class="p-6 max-w-4xl"><h1 class="text-xl font-bold mb-2">Debug</h1>' +
     '<h2 class="font-bold mt-4 mb-1">Nav items (' + App.nav.length + ')</h2>' +
     '<pre class="text-xs bg-slate-100 p-3 rounded overflow-auto">' + navLines.replace(/</g,'&lt;') + '</pre>' +
     '<h2 class="font-bold mt-4 mb-1">Bootstrap permissions</h2>' +
-    '<pre class="text-xs bg-slate-100 p-3 rounded overflow-auto">' + JSON.stringify(perms, null, 1).replace(/</g,'&lt;') + '</pre></div>';
+    '<pre class="text-xs bg-slate-100 p-3 rounded overflow-auto">' + JSON.stringify(perms, null, 1).replace(/</g,'&lt;') + '</pre>' +
+    '<h2 class="font-bold mt-4 mb-1">Rendered sidebar HTML (does it contain #/rules?)</h2>' +
+    '<pre class="text-xs bg-slate-100 p-3 rounded overflow-auto">' + String(navHtml).replace(/</g,'&lt;').slice(0, 6000) + '</pre></div>';
 };
 })();
 
