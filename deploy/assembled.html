@@ -2494,9 +2494,33 @@ App.boot=boot; App.route=route;
 App.nav.push({group:'SYSTEM', path:'#/debug', label:'Debug', icon:'settings', perm:'dashboard'});
 App.routes['#/debug'] = async function(el){
   var navLines = App.nav.map(function(n){
-    var ok = false; try { ok = perm(n.perm,'view'); } catch(e){}
+    var ok = false; try { ok = perm(n.perm,'view'); } catch(e){ ok = 'ERR:'+e.message; }
     return n.path + ' | group=' + n.group + ' | perm=' + n.perm + ' | visible=' + ok;
   }).join('\n');
+  /* step-by-step filter diagnosis for #/rules */
+  var r = null;
+  try {
+    r = App.nav.filter(function(n){ return n.path === '#/rules'; })[0] || null;
+  } catch(e){ r = null; }
+  var diag = 'rules item found: ' + !!r;
+  if (r) {
+    var c1, c2, c3;
+    try { c1 = (r.group === 'SYSTEM'); } catch(e){ c1 = 'ERR'; }
+    try { c2 = perm(r.perm, 'view'); } catch(e){ c2 = 'ERR:'+e.message; }
+    try { c3 = (!r.superadmin || ((Session.user||{}).role === 'superadmin')); } catch(e){ c3 = 'ERR'; }
+    diag += ' | group===SYSTEM: ' + c1 + ' (actual group=' + r.group + ')';
+    diag += ' | perm(settings,view): ' + c2;
+    diag += ' | not-superadmin-check: ' + c3;
+    diag += ' | labelKey=' + r.labelKey;
+    try { diag += ' | I18N.t(labelKey)=' + I18N.t(r.labelKey); } catch(e){ diag += ' | I18N.t THROWS: ' + e.message; }
+  }
+  /* does the live filter include it? */
+  var liveFilter = '';
+  try {
+    var gk = 'SYSTEM';
+    var inc = App.nav.filter(function(n){ return n.group===gk && perm(n.perm,'view') && (!n.superadmin||((Session.user||{}).role==='superadmin')); }).map(function(n){ return n.path; });
+    liveFilter = 'live filter SYSTEM items: ' + inc.join(', ');
+  } catch(e){ liveFilter = 'live filter ERR: ' + e.message; }
   var perms = {};
   try { perms = (Session.bootstrap||{}).permissions || {}; } catch(e){}
   var navHtml = '';
@@ -2507,7 +2531,9 @@ App.routes['#/debug'] = async function(el){
     '<h2 class="font-bold mt-4 mb-1">Bootstrap permissions</h2>' +
     '<pre class="text-xs bg-slate-100 p-3 rounded overflow-auto">' + JSON.stringify(perms, null, 1).replace(/</g,'&lt;') + '</pre>' +
     '<h2 class="font-bold mt-4 mb-1">Rendered sidebar HTML (does it contain #/rules?)</h2>' +
-    '<pre class="text-xs bg-slate-100 p-3 rounded overflow-auto">' + String(navHtml).replace(/</g,'&lt;').slice(0, 6000) + '</pre></div>';
+    '<pre class="text-xs bg-slate-100 p-3 rounded overflow-auto">' + String(navHtml).replace(/</g,'&lt;').slice(0, 6000) + '</pre>' +
+    '<h2 class="font-bold mt-4 mb-1">#/rules filter diagnosis</h2>' +
+    '<pre class="text-xs bg-slate-100 p-3 rounded overflow-auto">' + String(diag).replace(/</g,'&lt;') + '\n' + String(liveFilter).replace(/</g,'&lt;') + '</pre></div>';
 };
 })();
 
