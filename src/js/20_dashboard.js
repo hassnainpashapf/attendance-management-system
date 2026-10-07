@@ -46,7 +46,12 @@ App.routes['#/dashboard'] = async (el)=>{
   const render=async()=>{
     let body=document.getElementById(cid+'-body'); if(!body) return;
     try{
-      const d=await API.call('getDashboard');
+      /* PERF: fetch dashboard data + map data + sites in parallel (was 3 sequential round-trips) */
+      const [d, pts, sites]=await Promise.all([
+        API.call('getDashboard'),
+        API.call('getLiveMap').catch(()=>[]),
+        API.call('listSites').catch(()=>[])
+      ]);
       body=document.getElementById(cid+'-body'); if(!body) return;
       const k=d.kpis||{}, a=d.alerts||{};
       const kpiHtml=
@@ -101,9 +106,8 @@ App.routes['#/dashboard'] = async (el)=>{
         </div>`;
       drawPunches(cid+'-chart', d.punchesTrend);
       animateCounters(body);
-      /* live map */
+      /* live map (data already fetched in parallel above) */
       try{
-        const pts=await API.call('getLiveMap');
         const mapEl=document.getElementById(cid+'-map');
         if(mapEl && typeof L!=='undefined'){
           const map=buildMap(mapEl,[31.5,74.35],11);
@@ -111,7 +115,6 @@ App.routes['#/dashboard'] = async (el)=>{
             L.circleMarker([p.lat,p.lng],{radius:6,color:p.outOfZone?'#ef4444':'#0d9488',fillColor:p.outOfZone?'#ef4444':'#0d9488',fillOpacity:.85,weight:2,opacity:.9})
               .addTo(map).bindPopup(`<b>${esc(p.employeeName)}</b><br>${p.type==='in'?I18N.t('c4.common.checkedIn'):I18N.t('c4.common.checkedOut')} · ${esc(p.time)}<br>${esc(p.siteName)}`);
           });
-          const sites=await API.call('listSites');
           (sites||[]).filter(s=>s.active).forEach(s=>{
             L.circle([Number(s.lat),Number(s.lng)],{radius:Number(s.radiusM)||150,color:'#0ea5e9',weight:1.5,fillOpacity:.06}).addTo(map)
               .bindPopup(`<b>${esc(s.name)}</b><br>${I18N.t('c4.common.geofenceN').replace('{n}',fmtNum(s.radiusM))}`);

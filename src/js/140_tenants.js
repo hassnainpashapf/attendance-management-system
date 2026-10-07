@@ -18,8 +18,10 @@ App.routes['#/tenants'] = async (el)=>{
   const body=document.getElementById(cid+'-body');
 
   async function load(){
-    const stats=await API.call('getPlatformStats');
-    const rows=await API.call('listTenants');
+    const [stats, rows]=await Promise.all([
+      API.call('getPlatformStats'),
+      API.call('listTenants')
+    ]);
     statsEl.innerHTML=
       statCard(I18N.t('c4.ten.kpiTenants'),fmtNum(stats.tenants),I18N.t('c4.ten.kpiTenantsSub'),'teal',App.ICONS.tenants,stats.tenants)+
       statCard(I18N.t('c4.common.active'),fmtNum(stats.active),I18N.t('c4.ten.kpiActiveSub'),'emerald',App.ICONS.tenants,stats.active)+

@@ -154,10 +154,20 @@ const Alerts = {
       <p class="text-[11px] text-slate-400 mt-2">${T('t3.smsUrlHint')}</p>
     </div>
     <div class="rounded-xl border border-slate-200/70 p-4 mb-4">
+      <div class="flex items-center gap-2 mb-3">
+        <span class="text-base">💬</span><span class="font-semibold text-slate-700 text-sm">Slack</span>
+        <label class="ml-auto inline-flex items-center gap-2 text-xs text-slate-500 cursor-pointer">
+          <input type="checkbox" name="slack_enabled" ${on(s.slack_enabled)?'checked':''} ${dis} class="w-4 h-4 rounded accent-teal-600"> Enabled
+        </label>
+      </div>
+      ${field('Incoming webhook URL','slack_webhook_url',{value:s.slack_webhook_url||'',ph:'hooks.slack.com/services/…',cls:dis})}
+      <p class="text-[11px] text-slate-400 mt-2">Create an incoming webhook in your Slack workspace (Apps → Incoming Webhooks) and paste the URL here. Check-in and check-out alerts are posted to that channel.</p>
+    </div>
+    <div class="rounded-xl border border-slate-200/70 p-4 mb-4">
       <div class="font-semibold text-slate-700 text-sm mb-3">${T('t3.events')}</div>
       <div class="grid grid-cols-2 gap-2.5">
-        ${[['alert_late','t3.evLate'],['alert_absent','t3.evAbsent'],['alert_leave_decision','t3.evLeave'],['alert_out_of_zone','t3.evZone']]
-          .map(([k,l])=>`<label class="flex items-center gap-2 text-sm text-slate-600 cursor-pointer"><input type="checkbox" name="${k}" ${on(s[k])?'checked':''} ${dis} class="w-4 h-4 rounded accent-teal-600"> ${T(l)}</label>`).join('')}
+        ${[['alert_late','t3.evLate'],['alert_absent','t3.evAbsent'],['alert_leave_decision','t3.evLeave'],['alert_out_of_zone','t3.evZone'],['alert_checkin','Check-in (Slack)'],['alert_checkout','Check-out (Slack)']]
+          .map(([k,l])=>`<label class="flex items-center gap-2 text-sm text-slate-600 cursor-pointer"><input type="checkbox" name="${k}" ${on(s[k])?'checked':''} ${dis} class="w-4 h-4 rounded accent-teal-600"> ${l.startsWith('t3.')?T(l):l}</label>`).join('')}
       </div>
       <div class="mt-4 max-w-[220px]">${field(T('t3.grace'),'absence_grace_minutes',{type:'number',min:0,value:s.absence_grace_minutes||60})}</div>
       <p class="text-[11px] text-slate-400 mt-1">${T('t3.graceHint')}</p>
@@ -168,6 +178,7 @@ const Alerts = {
         <div class="flex-1 min-w-[180px]">${field(T('t3.testTo'),'t3_test_to',{ph:'03XXXXXXXXX'})}</div>
         <button class="${btnS} !text-xs" data-t3test="whatsapp">${T('t3.testWa')}</button>
         <button class="${btnS} !text-xs" data-t3test="sms">${T('t3.testSms')}</button>
+        <button class="${btnS} !text-xs" data-t3test="slack">Test Slack</button>
       </div>
       <p class="text-[11px] text-slate-400 mt-2">${T('t3.pendingNote')}</p>
     </div>
@@ -186,11 +197,12 @@ const Alerts = {
     };
     root.querySelectorAll('[data-t3test]').forEach(b=>{
       b.onclick = async ()=>{
+        const ch = b.dataset.t3test;
         const to = formVal(root, 't3_test_to');
-        if(!to){ toast(T('t3.testNeedNo'),'warn'); return; }
+        if(!to && ch !== 'slack'){ toast(T('t3.testNeedNo'),'warn'); return; }
         b.disabled = true;
         try{
-          const r = await API.call('testAlert', b.dataset.t3test, to);
+          const r = await API.call('testAlert', ch, to);
           toast(T('t3.testSent')+' ('+r.status+')', r.status==='sent'?'success':'warn');
           const ml = document.querySelector('[data-t3log]');
           if(ml) Alerts.renderLog(ml);

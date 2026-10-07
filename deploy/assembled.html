@@ -2259,8 +2259,10 @@ App.routes['#/documents'] = async (el)=>{
   const emps=await API.call('listEmployees').catch(()=>[]);
 
   async function load(){
-    const rows=await API.call('listDocuments');
-    const exp=await API.call('getExpiringDocuments');
+    const [rows, exp]=await Promise.all([
+      API.call('listDocuments'),
+      API.call('getExpiringDocuments').catch(()=>[])
+    ]);
     alertsEl.innerHTML=exp.length?`
       <div class="bg-amber-50/70 border border-amber-200/70 rounded-2xl p-5 anim-fadeUp">
         <div class="font-display font-bold text-amber-800 text-sm mb-3">${I18N.t('c4.docs.expiringN').replace('{n}',exp.length)}</div>
@@ -2489,81 +2491,6 @@ if(document.readyState==='loading') document.addEventListener('DOMContentLoaded'
 else boot();
 App.ICONS=ICONS;
 App.boot=boot; App.route=route;
-
-/* TEMP DEBUG ROUTE (remove before release): shows nav items + bootstrap perms */
-App.nav.push({group:'SYSTEM', path:'#/debug', label:'Debug', icon:'settings', perm:'dashboard'});
-App.routes['#/debug'] = async function(el){
-  var navLines = App.nav.map(function(n){
-    var ok = false; try { ok = perm(n.perm,'view'); } catch(e){ ok = 'ERR:'+e.message; }
-    return n.path + ' | group=' + n.group + ' | perm=' + n.perm + ' | visible=' + ok;
-  }).join('\n');
-  /* step-by-step filter diagnosis for #/rules */
-  var r = null;
-  try {
-    r = App.nav.filter(function(n){ return n.path === '#/rules'; })[0] || null;
-  } catch(e){ r = null; }
-  var diag = 'rules item found: ' + !!r;
-  if (r) {
-    var c1, c2, c3;
-    try { c1 = (r.group === 'SYSTEM'); } catch(e){ c1 = 'ERR'; }
-    try { c2 = perm(r.perm, 'view'); } catch(e){ c2 = 'ERR:'+e.message; }
-    try { c3 = (!r.superadmin || ((Session.user||{}).role === 'superadmin')); } catch(e){ c3 = 'ERR'; }
-    diag += ' | group===SYSTEM: ' + c1 + ' (actual group=' + r.group + ')';
-    diag += ' | perm(settings,view): ' + c2;
-    diag += ' | not-superadmin-check: ' + c3;
-    diag += ' | labelKey=' + r.labelKey;
-    try { diag += ' | I18N.t(labelKey)=' + I18N.t(r.labelKey); } catch(e){ diag += ' | I18N.t THROWS: ' + e.message; }
-  }
-  /* does the live filter include it? */
-  var liveFilter = '';
-  try {
-    var gk = 'SYSTEM';
-    var inc = App.nav.filter(function(n){ return n.group===gk && perm(n.perm,'view') && (!n.superadmin||((Session.user||{}).role==='superadmin')); }).map(function(n){ return n.path; });
-    liveFilter = 'live filter SYSTEM items: ' + inc.join(', ');
-  } catch(e){ liveFilter = 'live filter ERR: ' + e.message; }
-  /* simulate the exact map step for SYSTEM and catch any throw per item */
-  var mapTest = '';
-  try {
-    var gk2 = 'SYSTEM';
-    var items2 = App.nav.filter(function(n){ return n.group===gk2 && perm(n.perm,'view') && (!n.superadmin||((Session.user||{}).role==='superadmin')); });
-    mapTest = items2.map(function(n){
-      try {
-        var lbl = I18N.t(n.labelKey);
-        return n.path + ' => label="' + lbl + '" OK';
-      } catch(e){ return n.path + ' => THROWS: ' + e.message; }
-    }).join('\n');
-  } catch(e){ mapTest = 'mapTest ERR: ' + e.message; }
-  var perms = {};
-  try { perms = (Session.bootstrap||{}).permissions || {}; } catch(e){}
-  var navHtml = '';
-  try { navHtml = (document.getElementById('nav')||{}).innerHTML || '(no #nav)'; } catch(e){ navHtml = 'err: '+e.message; }
-  var hasRules = false;
-  try { hasRules = String(navHtml).indexOf('#/rules') >= 0; } catch(e){}
-  var navLen = 0;
-  try { navLen = String(navHtml).length; } catch(e){}
-  var rulesAnchor = '(not found)';
-  try {
-    var m = String(navHtml).match(/<a href="#\/rules"[\s\S]*?<\/a>/);
-    if (m) rulesAnchor = m[0];
-  } catch(e){ rulesAnchor = 'err: '+e.message; }
-  /* template reconstruction removed; instead: direct link to open #/rules page */
-  var openRulesBtn = '<p class="mt-4"><a href="#/rules" class="px-4 py-2 bg-teal-600 text-white rounded-xl text-sm font-semibold">Open HR Rules page (#/rules)</a></p>';
-  el.innerHTML = '<div class="p-6 max-w-4xl"><h1 class="text-xl font-bold mb-2">Debug</h1>' +
-    '<h2 class="font-bold mt-4 mb-1">Nav items (' + App.nav.length + ')</h2>' +
-    '<pre class="text-xs bg-slate-100 p-3 rounded overflow-auto">' + navLines.replace(/</g,'&lt;') + '</pre>' +
-    '<h2 class="font-bold mt-4 mb-1">Bootstrap permissions</h2>' +
-    '<pre class="text-xs bg-slate-100 p-3 rounded overflow-auto">' + JSON.stringify(perms, null, 1).replace(/</g,'&lt;') + '</pre>' +
-    '<h2 class="font-bold mt-4 mb-1">Rendered sidebar HTML (does it contain #/rules?)</h2>' +
-    '<pre class="text-xs bg-slate-100 p-3 rounded overflow-auto">navHtml length=' + navLen + ' | contains #/rules: ' + hasRules + '</pre>' +
-    '<h2 class="font-bold mt-4 mb-1">Full #/rules anchor HTML</h2>' +
-    '<pre class="text-xs bg-slate-100 p-3 rounded overflow-auto">' + String(rulesAnchor).replace(/</g,'&lt;') + '</pre>' +
-    '<h2 class="font-bold mt-4 mb-1">Template reconstruction</h2>' +
-    String(openRulesBtn) + '</div>';
-    '<h2 class="font-bold mt-4 mb-1">#/rules filter diagnosis</h2>' +
-    '<pre class="text-xs bg-slate-100 p-3 rounded overflow-auto">' + String(diag).replace(/</g,'&lt;') + '\n' + String(liveFilter).replace(/</g,'&lt;') + '</pre>' +
-    '<h2 class="font-bold mt-4 mb-1">Per-item map test (does I18N.t throw?)</h2>' +
-    '<pre class="text-xs bg-slate-100 p-3 rounded overflow-auto">' + String(mapTest).replace(/</g,'&lt;') + '</pre></div>';
-};
 })();
 
 
@@ -2816,8 +2743,10 @@ App.routes['#/tenants'] = async (el)=>{
   const body=document.getElementById(cid+'-body');
 
   async function load(){
-    const stats=await API.call('getPlatformStats');
-    const rows=await API.call('listTenants');
+    const [stats, rows]=await Promise.all([
+      API.call('getPlatformStats'),
+      API.call('listTenants')
+    ]);
     statsEl.innerHTML=
       statCard(I18N.t('c4.ten.kpiTenants'),fmtNum(stats.tenants),I18N.t('c4.ten.kpiTenantsSub'),'teal',App.ICONS.tenants,stats.tenants)+
       statCard(I18N.t('c4.common.active'),fmtNum(stats.active),I18N.t('c4.ten.kpiActiveSub'),'emerald',App.ICONS.tenants,stats.active)+
@@ -3856,10 +3785,20 @@ const Alerts = {
       <p class="text-[11px] text-slate-400 mt-2">${T('t3.smsUrlHint')}</p>
     </div>
     <div class="rounded-xl border border-slate-200/70 p-4 mb-4">
+      <div class="flex items-center gap-2 mb-3">
+        <span class="text-base">💬</span><span class="font-semibold text-slate-700 text-sm">Slack</span>
+        <label class="ml-auto inline-flex items-center gap-2 text-xs text-slate-500 cursor-pointer">
+          <input type="checkbox" name="slack_enabled" ${on(s.slack_enabled)?'checked':''} ${dis} class="w-4 h-4 rounded accent-teal-600"> Enabled
+        </label>
+      </div>
+      ${field('Incoming webhook URL','slack_webhook_url',{value:s.slack_webhook_url||'',ph:'hooks.slack.com/services/…',cls:dis})}
+      <p class="text-[11px] text-slate-400 mt-2">Create an incoming webhook in your Slack workspace (Apps → Incoming Webhooks) and paste the URL here. Check-in and check-out alerts are posted to that channel.</p>
+    </div>
+    <div class="rounded-xl border border-slate-200/70 p-4 mb-4">
       <div class="font-semibold text-slate-700 text-sm mb-3">${T('t3.events')}</div>
       <div class="grid grid-cols-2 gap-2.5">
-        ${[['alert_late','t3.evLate'],['alert_absent','t3.evAbsent'],['alert_leave_decision','t3.evLeave'],['alert_out_of_zone','t3.evZone']]
-          .map(([k,l])=>`<label class="flex items-center gap-2 text-sm text-slate-600 cursor-pointer"><input type="checkbox" name="${k}" ${on(s[k])?'checked':''} ${dis} class="w-4 h-4 rounded accent-teal-600"> ${T(l)}</label>`).join('')}
+        ${[['alert_late','t3.evLate'],['alert_absent','t3.evAbsent'],['alert_leave_decision','t3.evLeave'],['alert_out_of_zone','t3.evZone'],['alert_checkin','Check-in (Slack)'],['alert_checkout','Check-out (Slack)']]
+          .map(([k,l])=>`<label class="flex items-center gap-2 text-sm text-slate-600 cursor-pointer"><input type="checkbox" name="${k}" ${on(s[k])?'checked':''} ${dis} class="w-4 h-4 rounded accent-teal-600"> ${l.startsWith('t3.')?T(l):l}</label>`).join('')}
       </div>
       <div class="mt-4 max-w-[220px]">${field(T('t3.grace'),'absence_grace_minutes',{type:'number',min:0,value:s.absence_grace_minutes||60})}</div>
       <p class="text-[11px] text-slate-400 mt-1">${T('t3.graceHint')}</p>
@@ -3870,6 +3809,7 @@ const Alerts = {
         <div class="flex-1 min-w-[180px]">${field(T('t3.testTo'),'t3_test_to',{ph:'03XXXXXXXXX'})}</div>
         <button class="${btnS} !text-xs" data-t3test="whatsapp">${T('t3.testWa')}</button>
         <button class="${btnS} !text-xs" data-t3test="sms">${T('t3.testSms')}</button>
+        <button class="${btnS} !text-xs" data-t3test="slack">Test Slack</button>
       </div>
       <p class="text-[11px] text-slate-400 mt-2">${T('t3.pendingNote')}</p>
     </div>
@@ -3888,11 +3828,12 @@ const Alerts = {
     };
     root.querySelectorAll('[data-t3test]').forEach(b=>{
       b.onclick = async ()=>{
+        const ch = b.dataset.t3test;
         const to = formVal(root, 't3_test_to');
-        if(!to){ toast(T('t3.testNeedNo'),'warn'); return; }
+        if(!to && ch !== 'slack'){ toast(T('t3.testNeedNo'),'warn'); return; }
         b.disabled = true;
         try{
-          const r = await API.call('testAlert', b.dataset.t3test, to);
+          const r = await API.call('testAlert', ch, to);
           toast(T('t3.testSent')+' ('+r.status+')', r.status==='sent'?'success':'warn');
           const ml = document.querySelector('[data-t3log]');
           if(ml) Alerts.renderLog(ml);
@@ -4369,7 +4310,12 @@ App.routes['#/dashboard'] = async (el)=>{
   const render=async()=>{
     let body=document.getElementById(cid+'-body'); if(!body) return;
     try{
-      const d=await API.call('getDashboard');
+      /* PERF: fetch dashboard data + map data + sites in parallel (was 3 sequential round-trips) */
+      const [d, pts, sites]=await Promise.all([
+        API.call('getDashboard'),
+        API.call('getLiveMap').catch(()=>[]),
+        API.call('listSites').catch(()=>[])
+      ]);
       body=document.getElementById(cid+'-body'); if(!body) return;
       const k=d.kpis||{}, a=d.alerts||{};
       const kpiHtml=
@@ -4424,9 +4370,8 @@ App.routes['#/dashboard'] = async (el)=>{
         </div>`;
       drawPunches(cid+'-chart', d.punchesTrend);
       animateCounters(body);
-      /* live map */
+      /* live map (data already fetched in parallel above) */
       try{
-        const pts=await API.call('getLiveMap');
         const mapEl=document.getElementById(cid+'-map');
         if(mapEl && typeof L!=='undefined'){
           const map=buildMap(mapEl,[31.5,74.35],11);
@@ -4434,7 +4379,6 @@ App.routes['#/dashboard'] = async (el)=>{
             L.circleMarker([p.lat,p.lng],{radius:6,color:p.outOfZone?'#ef4444':'#0d9488',fillColor:p.outOfZone?'#ef4444':'#0d9488',fillOpacity:.85,weight:2,opacity:.9})
               .addTo(map).bindPopup(`<b>${esc(p.employeeName)}</b><br>${p.type==='in'?I18N.t('c4.common.checkedIn'):I18N.t('c4.common.checkedOut')} · ${esc(p.time)}<br>${esc(p.siteName)}`);
           });
-          const sites=await API.call('listSites');
           (sites||[]).filter(s=>s.active).forEach(s=>{
             L.circle([Number(s.lat),Number(s.lng)],{radius:Number(s.radiusM)||150,color:'#0ea5e9',weight:1.5,fillOpacity:.06}).addTo(map)
               .bindPopup(`<b>${esc(s.name)}</b><br>${I18N.t('c4.common.geofenceN').replace('{n}',fmtNum(s.radiusM))}`);

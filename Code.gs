@@ -532,8 +532,8 @@ var API = {
       sites: trows_(ss, 'sites').filter(function (s) { return bool_(s.active); }).length,
       punchesToday: trows_(ss, 'attendance').filter(function (a) { return a.date === today; }).length,
       pendingLeaves: trows_(ss, 'leaveRequests').filter(function (l) { return l.status === 'pending'; }).length,
-      pendingCorrections: trows_(ss, 'corrections').filter(function (c) { return c.status === 'pending'; }).length,
-      openAdvances: trows_(ss, 'advances').filter(function (a) { return a.status === 'open'; }).length
+      pendingCorrections: _corrections.filter(function (c) { return c.status === 'pending'; }).length,
+      openAdvances: _advances.filter(function (a) { return a.status === 'open'; }).length
     };
   },
 
@@ -1841,19 +1841,27 @@ var API = {
     }
     var ss = TSS_(user), today = todayStr_();
     var scope = scopeEmployeeIds_(user);
+    /* PERF: read each sheet once, reuse arrays (was 8+ separate reads) */
+    var _emps = trows_(ss, 'employees');
+    var _sites = trows_(ss, 'sites');
+    var _attAll = trows_(ss, 'attendance');
+    var _leaves = trows_(ss, 'leaveRequests');
+    var _corrections = trows_(ss, 'corrections');
+    var _overtime = trows_(ss, 'overtime');
+    var _advances = trows_(ss, 'advances');
     var emps = {};
-    trows_(ss, 'employees').forEach(function (e) { emps[e.id] = e; });
+    _emps.forEach(function (e) { emps[e.id] = e; });
     var activeEmps = Object.keys(emps).map(function (k) { return emps[k]; })
       .filter(function (e) { return bool_(e.active) && (!scope || scope.indexOf(String(e.id)) >= 0); });
     var sites = {};
-    trows_(ss, 'sites').forEach(function (s) { sites[s.id] = s.name; });
-    var att = trows_(ss, 'attendance').filter(function (a) {
+    _sites.forEach(function (s) { sites[s.id] = s.name; });
+    var att = _attAll.filter(function (a) {
       return a.date === today && (!scope || scope.indexOf(String(a.employeeId)) >= 0);
     });
     var presentIds = {};
     att.forEach(function (a) { if (a.type === 'in') presentIds[a.employeeId] = true; });
     var present = Object.keys(presentIds).length;
-    var onLeave = trows_(ss, 'leaveRequests').filter(function (l) {
+    var onLeave = _leaves.filter(function (l) {
       return l.status === 'approved' && l.from <= today && l.to >= today &&
              (!scope || scope.indexOf(String(l.employeeId)) >= 0);
     }).length;
@@ -1877,10 +1885,10 @@ var API = {
         onLeaveToday: onLeave,
         outOfZoneToday: att.filter(function (a) { return bool_(a.outOfZone); }).length,
         pendingCorrections: trows_(ss, 'corrections').filter(function (c) { return c.status === 'pending'; }).length,
-        pendingLeaves: trows_(ss, 'leaveRequests').filter(function (l) {
+        pendingLeaves: _leaves.filter(function (l) {
           return l.status === 'pending' && (!scope || scope.indexOf(String(l.employeeId)) >= 0);
         }).length,
-        pendingOvertime: trows_(ss, 'overtime').filter(function (o) { return o.status === 'pending'; }).length,
+        pendingOvertime: _overtime.filter(function (o) { return o.status === 'pending'; }).length,
         expiringDocuments: API.getExpiringDocuments(user, 30).length,
         openAdvances: trows_(ss, 'advances').filter(function (a) { return a.status === 'open'; }).length
       },
@@ -2634,10 +2642,14 @@ function seedTrack3Tabs_(ss) {
     ['wa_template_name', ''],
     ['sms_webhook_url', ''],
     ['sms_enabled', '0'],
+    ['slack_webhook_url', ''],
+    ['slack_enabled', '0'],
     ['alert_late', '1'],
     ['alert_absent', '1'],
     ['alert_leave_decision', '1'],
     ['alert_out_of_zone', '1'],
+    ['alert_checkin', '1'],
+    ['alert_checkout', '1'],
     ['absence_grace_minutes', '60']
   ];
   var have = {};
@@ -2674,6 +2686,8 @@ function t3ChannelFor_(ss, channel) {
     return 'whatsapp';
   if (channel === 'sms' && tsetting_(ss, 'sms_webhook_url', ''))
     return 'sms';
+  if (channel === 'slack' && tsetting_(ss, 'slack_webhook_url', ''))
+    return 'slack';
   return '';
 }
 function t3LogRow_(ss, base, status, error) {
@@ -2701,6 +2715,12 @@ function t3Body_(event, v) {
     case 'leave_rejected':
       return brand + ': Dear ' + v.name + ', your ' + v.type + ' leave from ' + v.from +
         ' to ' + v.to + ' (' + v.days + ' days) has been REJECTED.';
+    case 'checkin':
+      return '✅ ' + brand + ': ' + v.name + ' checked IN at ' + v.time +
+        (v.site ? ' (' + v.site + ')' : '') + (v.outOfZone ? ' ⚠️ outside geofence' : '');
+    case 'checkout':
+      return '🔚 ' + brand + ': ' + v.name + ' checked OUT at ' + v.time +
+        (v.site ? ' (' + v.site + ')' : '') + (v.hours ? ' — worked ' + v.hours : '');
     case 'test':
       return brand + ' test alert via ' + v.channel + ' - your notification channel is working.';
     default:
@@ -2742,10 +2762,24 @@ function t3Sms_(ss, to, body) {
     throw new Error('SMS webhook HTTP ' + code + ': ' + String(resp.getContentText()).slice(0, 300));
   return true;
 }
+/* Slack incoming webhook: POST JSON {text}. 2xx counts as sent. */
+function t3Slack_(ss, body) {
+  var url = tsetting_(ss, 'slack_webhook_url', '');
+  if (!url) throw new Error('Slack webhook URL not configured');
+  var resp = UrlFetchApp.fetch(url, {
+    method: 'post', contentType: 'application/json',
+    payload: JSON.stringify({ text: body }), muteHttpExceptions: true
+  });
+  var code = resp.getResponseCode();
+  if (code < 200 || code >= 300)
+    throw new Error('Slack webhook HTTP ' + code + ': ' + String(resp.getContentText()).slice(0, 300));
+  return true;
+}
 /* Raw send: throws on any failure (including missing credentials). */
 function t3TrySend_(ss, channel, to, body) {
   if (channel === 'whatsapp') return t3WhatsApp_(ss, to, body);
   if (channel === 'sms') return t3Sms_(ss, to, body);
+  if (channel === 'slack') return t3Slack_(ss, body);
   throw new Error('No notification channel configured');
 }
 /* Dispatch + log. NEVER throws: missing credentials -> pending-config,
@@ -2861,6 +2895,40 @@ API.runAlertChecks = function (user, employeeId, date) {
         site: site ? site.name : 'unknown site', distance: a.distanceM || ''
       }));
     });
+  }
+  /* Slack check-in / check-out alerts: posted to the Slack webhook channel.
+     Uses the latest in/out punch of the day; deduped per punch time. */
+  if (t3On_(tsetting_(ss, 'slack_enabled', '0')) && tsetting_(ss, 'slack_webhook_url', '')) {
+    var slackSites = {};
+    trows_(ss, 'sites').forEach(function (s) { slackSites[String(s.id)] = s.name; });
+    var sorted = att.slice().sort(function (a, b) {
+      return String(a.time) < String(b.time) ? -1 : (String(a.time) > String(b.time) ? 1 : 0);
+    });
+    var lastIn = null, lastOut = null;
+    sorted.forEach(function (a) { if (a.type === 'in') lastIn = a; else if (a.type === 'out') lastOut = a; });
+    var slackRow = function (event, body) {
+      return { id: tnextId_(ss, 'M', 'messageLog'), ts: t3NowISO_(),
+        tenantId: user.tenantId || '', channel: 'slack', to: '#channel', event: event, body: body };
+    };
+    if (lastIn && t3On_(tsetting_(ss, 'alert_checkin', '1')) &&
+        !t3Logged_(ss, date, 'checkin', 'slack', emp.name + lastIn.time)) {
+      var cbody = t3Body_('checkin', { name: emp.name, time: lastIn.time,
+        site: slackSites[String(lastIn.siteId)] || '', outOfZone: bool_(lastIn.outOfZone) });
+      try { t3Slack_(ss, cbody); t3LogRow_(ss, slackRow('checkin', cbody), 'sent', ''); out.alerts.push({ ok: true, sent: true, status: 'sent', channel: 'slack', event: 'checkin' }); }
+      catch (e) { t3LogRow_(ss, slackRow('checkin', cbody), 'failed', String(e.message || e).slice(0, 500)); }
+    }
+    if (lastOut && t3On_(tsetting_(ss, 'alert_checkout', '1')) &&
+        !t3Logged_(ss, date, 'checkout', 'slack', emp.name + lastOut.time)) {
+      var hours = '';
+      if (lastIn && lastIn.time && lastOut.time) {
+        var mh = Math.round((minsBetween_(lastIn.time, lastOut.time)) / 60 * 10) / 10;
+        if (mh > 0 && mh < 24) hours = mh + 'h';
+      }
+      var obody = t3Body_('checkout', { name: emp.name, time: lastOut.time,
+        site: slackSites[String(lastOut.siteId)] || '', hours: hours });
+      try { t3Slack_(ss, obody); t3LogRow_(ss, slackRow('checkout', obody), 'sent', ''); out.alerts.push({ ok: true, sent: true, status: 'sent', channel: 'slack', event: 'checkout' }); }
+      catch (e) { t3LogRow_(ss, slackRow('checkout', obody), 'failed', String(e.message || e).slice(0, 500)); }
+    }
   }
   return out;
 };
@@ -2980,10 +3048,15 @@ API.testAlert = function (user, channel, to) {
   requireUser_(user);
   need_(user, 'settings_manage');
   channel = String(channel || '').toLowerCase();
-  if (channel !== 'whatsapp' && channel !== 'sms') throw new Error('Channel must be whatsapp or sms');
+  if (channel !== 'whatsapp' && channel !== 'sms' && channel !== 'slack') throw new Error('Channel must be whatsapp, sms or slack');
+  var ss = TSS_(user);
+  if (channel === 'slack') {
+    var ch = t3ChannelFor_(ss, 'slack');
+    return t3Dispatch_(ss, user.tenantId || '', ch, '#channel', 'test',
+      t3Body_('test', { channel: channel }));
+  }
   to = t3NormPhone_(to);
   if (!to) throw new Error('A test phone number is required');
-  var ss = TSS_(user);
   return t3Dispatch_(ss, user.tenantId || '', t3ChannelFor_(ss, channel), to, 'test',
     t3Body_('test', { channel: channel }));
 };

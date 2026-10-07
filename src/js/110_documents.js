@@ -15,8 +15,10 @@ App.routes['#/documents'] = async (el)=>{
   const emps=await API.call('listEmployees').catch(()=>[]);
 
   async function load(){
-    const rows=await API.call('listDocuments');
-    const exp=await API.call('getExpiringDocuments');
+    const [rows, exp]=await Promise.all([
+      API.call('listDocuments'),
+      API.call('getExpiringDocuments').catch(()=>[])
+    ]);
     alertsEl.innerHTML=exp.length?`
       <div class="bg-amber-50/70 border border-amber-200/70 rounded-2xl p-5 anim-fadeUp">
         <div class="font-display font-bold text-amber-800 text-sm mb-3">${I18N.t('c4.docs.expiringN').replace('{n}',exp.length)}</div>

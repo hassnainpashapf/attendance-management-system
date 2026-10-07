@@ -354,8 +354,10 @@ App.routes['#/documents'] = async (el)=>{
   const emps=await API.call('listEmployees').catch(()=>[]);
 
   async function load(){
-    const rows=await API.call('listDocuments');
-    const exp=await API.call('getExpiringDocuments');
+    const [rows, exp]=await Promise.all([
+      API.call('listDocuments'),
+      API.call('getExpiringDocuments').catch(()=>[])
+    ]);
     alertsEl.innerHTML=exp.length?`
       <div class="bg-amber-50/70 border border-amber-200/70 rounded-2xl p-5 anim-fadeUp">
         <div class="font-display font-bold text-amber-800 text-sm mb-3">${I18N.t('c4.docs.expiringN').replace('{n}',exp.length)}</div>
@@ -584,81 +586,6 @@ if(document.readyState==='loading') document.addEventListener('DOMContentLoaded'
 else boot();
 App.ICONS=ICONS;
 App.boot=boot; App.route=route;
-
-/* TEMP DEBUG ROUTE (remove before release): shows nav items + bootstrap perms */
-App.nav.push({group:'SYSTEM', path:'#/debug', label:'Debug', icon:'settings', perm:'dashboard'});
-App.routes['#/debug'] = async function(el){
-  var navLines = App.nav.map(function(n){
-    var ok = false; try { ok = perm(n.perm,'view'); } catch(e){ ok = 'ERR:'+e.message; }
-    return n.path + ' | group=' + n.group + ' | perm=' + n.perm + ' | visible=' + ok;
-  }).join('\n');
-  /* step-by-step filter diagnosis for #/rules */
-  var r = null;
-  try {
-    r = App.nav.filter(function(n){ return n.path === '#/rules'; })[0] || null;
-  } catch(e){ r = null; }
-  var diag = 'rules item found: ' + !!r;
-  if (r) {
-    var c1, c2, c3;
-    try { c1 = (r.group === 'SYSTEM'); } catch(e){ c1 = 'ERR'; }
-    try { c2 = perm(r.perm, 'view'); } catch(e){ c2 = 'ERR:'+e.message; }
-    try { c3 = (!r.superadmin || ((Session.user||{}).role === 'superadmin')); } catch(e){ c3 = 'ERR'; }
-    diag += ' | group===SYSTEM: ' + c1 + ' (actual group=' + r.group + ')';
-    diag += ' | perm(settings,view): ' + c2;
-    diag += ' | not-superadmin-check: ' + c3;
-    diag += ' | labelKey=' + r.labelKey;
-    try { diag += ' | I18N.t(labelKey)=' + I18N.t(r.labelKey); } catch(e){ diag += ' | I18N.t THROWS: ' + e.message; }
-  }
-  /* does the live filter include it? */
-  var liveFilter = '';
-  try {
-    var gk = 'SYSTEM';
-    var inc = App.nav.filter(function(n){ return n.group===gk && perm(n.perm,'view') && (!n.superadmin||((Session.user||{}).role==='superadmin')); }).map(function(n){ return n.path; });
-    liveFilter = 'live filter SYSTEM items: ' + inc.join(', ');
-  } catch(e){ liveFilter = 'live filter ERR: ' + e.message; }
-  /* simulate the exact map step for SYSTEM and catch any throw per item */
-  var mapTest = '';
-  try {
-    var gk2 = 'SYSTEM';
-    var items2 = App.nav.filter(function(n){ return n.group===gk2 && perm(n.perm,'view') && (!n.superadmin||((Session.user||{}).role==='superadmin')); });
-    mapTest = items2.map(function(n){
-      try {
-        var lbl = I18N.t(n.labelKey);
-        return n.path + ' => label="' + lbl + '" OK';
-      } catch(e){ return n.path + ' => THROWS: ' + e.message; }
-    }).join('\n');
-  } catch(e){ mapTest = 'mapTest ERR: ' + e.message; }
-  var perms = {};
-  try { perms = (Session.bootstrap||{}).permissions || {}; } catch(e){}
-  var navHtml = '';
-  try { navHtml = (document.getElementById('nav')||{}).innerHTML || '(no #nav)'; } catch(e){ navHtml = 'err: '+e.message; }
-  var hasRules = false;
-  try { hasRules = String(navHtml).indexOf('#/rules') >= 0; } catch(e){}
-  var navLen = 0;
-  try { navLen = String(navHtml).length; } catch(e){}
-  var rulesAnchor = '(not found)';
-  try {
-    var m = String(navHtml).match(/<a href="#\/rules"[\s\S]*?<\/a>/);
-    if (m) rulesAnchor = m[0];
-  } catch(e){ rulesAnchor = 'err: '+e.message; }
-  /* template reconstruction removed; instead: direct link to open #/rules page */
-  var openRulesBtn = '<p class="mt-4"><a href="#/rules" class="px-4 py-2 bg-teal-600 text-white rounded-xl text-sm font-semibold">Open HR Rules page (#/rules)</a></p>';
-  el.innerHTML = '<div class="p-6 max-w-4xl"><h1 class="text-xl font-bold mb-2">Debug</h1>' +
-    '<h2 class="font-bold mt-4 mb-1">Nav items (' + App.nav.length + ')</h2>' +
-    '<pre class="text-xs bg-slate-100 p-3 rounded overflow-auto">' + navLines.replace(/</g,'&lt;') + '</pre>' +
-    '<h2 class="font-bold mt-4 mb-1">Bootstrap permissions</h2>' +
-    '<pre class="text-xs bg-slate-100 p-3 rounded overflow-auto">' + JSON.stringify(perms, null, 1).replace(/</g,'&lt;') + '</pre>' +
-    '<h2 class="font-bold mt-4 mb-1">Rendered sidebar HTML (does it contain #/rules?)</h2>' +
-    '<pre class="text-xs bg-slate-100 p-3 rounded overflow-auto">navHtml length=' + navLen + ' | contains #/rules: ' + hasRules + '</pre>' +
-    '<h2 class="font-bold mt-4 mb-1">Full #/rules anchor HTML</h2>' +
-    '<pre class="text-xs bg-slate-100 p-3 rounded overflow-auto">' + String(rulesAnchor).replace(/</g,'&lt;') + '</pre>' +
-    '<h2 class="font-bold mt-4 mb-1">Template reconstruction</h2>' +
-    String(openRulesBtn) + '</div>';
-    '<h2 class="font-bold mt-4 mb-1">#/rules filter diagnosis</h2>' +
-    '<pre class="text-xs bg-slate-100 p-3 rounded overflow-auto">' + String(diag).replace(/</g,'&lt;') + '\n' + String(liveFilter).replace(/</g,'&lt;') + '</pre>' +
-    '<h2 class="font-bold mt-4 mb-1">Per-item map test (does I18N.t throw?)</h2>' +
-    '<pre class="text-xs bg-slate-100 p-3 rounded overflow-auto">' + String(mapTest).replace(/</g,'&lt;') + '</pre></div>';
-};
 })();
 
 
@@ -911,8 +838,10 @@ App.routes['#/tenants'] = async (el)=>{
   const body=document.getElementById(cid+'-body');
 
   async function load(){
-    const stats=await API.call('getPlatformStats');
-    const rows=await API.call('listTenants');
+    const [stats, rows]=await Promise.all([
+      API.call('getPlatformStats'),
+      API.call('listTenants')
+    ]);
     statsEl.innerHTML=
       statCard(I18N.t('c4.ten.kpiTenants'),fmtNum(stats.tenants),I18N.t('c4.ten.kpiTenantsSub'),'teal',App.ICONS.tenants,stats.tenants)+
       statCard(I18N.t('c4.common.active'),fmtNum(stats.active),I18N.t('c4.ten.kpiActiveSub'),'emerald',App.ICONS.tenants,stats.active)+
