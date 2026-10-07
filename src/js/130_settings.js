@@ -42,8 +42,21 @@ App.routes['#/settings'] = async (el)=>{
         <button class="${btnS}" id="${cid}-backup">Backup Now</button>
         <div id="${cid}-backupMsg" class="mt-3 text-sm"></div>
       </div>
+      <div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.05)] p-6">
+        <h3 class="font-display font-bold text-slate-800 mb-1">${I18N.t('t3.notifications')}</h3>
+        <p class="text-sm text-slate-400 mb-5">${I18N.t('t3.notifSub')}</p>
+        <div id="${cid}-notif"></div>
+      </div>
     </div>
   </div>
+  ${canEdit?`<div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.05)] p-6 mt-4">
+    <div class="flex items-center justify-between mb-1">
+      <h3 class="font-display font-bold text-slate-800">${I18N.t('t3.logTitle')}</h3>
+      <button class="${btnS} !py-1.5 !text-xs" id="${cid}-logRefresh">${I18N.t('t3.refresh')}</button>
+    </div>
+    <p class="text-sm text-slate-400 mb-5">${I18N.t('t3.logSub')}</p>
+    <div id="${cid}-msglog"></div>
+  </div>`:''}
   ${canEdit?`<div class="bg-white rounded-2xl border border-slate-200/70 shadow-[0_1px_3px_rgba(15,23,42,.05)] p-6 mt-4">
     <h3 class="font-display font-bold text-slate-800 mb-1">Role permissions</h3>
     <p class="text-sm text-slate-400 mb-5">Control which roles can view or edit each module.</p>
@@ -89,6 +102,16 @@ App.routes['#/settings'] = async (el)=>{
     }catch(e){ toast(e.message,'error'); }
     bb.disabled=false; bb.textContent='Backup Now';
   };
+
+  /* TRACK 3: notifications card + message log */
+  const nt=document.getElementById(cid+'-notif');
+  if(nt&&window.Alerts){ nt.innerHTML=Alerts.notifHTML(s,canEdit); Alerts.initNotif(cid+'-notif',canEdit); }
+  const ml=document.getElementById(cid+'-msglog');
+  if(ml&&window.Alerts){
+    Alerts.renderLog(ml);
+    const rf=document.getElementById(cid+'-logRefresh');
+    if(rf) rf.onclick=()=>Alerts.renderLog(ml);
+  }
 
   if(canEdit){
     const perms=await API.call('listRolePermissions');

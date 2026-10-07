@@ -106,6 +106,19 @@ const DB = {
     {id:'d3', employeeId:'e5', title:'Driving License — Imran Khan', expiryDate:'2026-09-28'},
     {id:'d4', employeeId:'e2', title:'Trade Certificate — Bilal Hussain', expiryDate:'2027-08-01'},
   ],
+  faceEnrollments:[],
+  salaryStructures:[],
+  messageLog:[],
+  employeeFlags:[],
+  rules:[
+    {key:'duplicatePunchWindowMinutes', value:'5', valueType:'int', description:'Duplicate punch window (minutes)'},
+    {key:'lateGraceMinutes', value:'15', valueType:'int', description:'Default shift grace (minutes)'},
+    {key:'lateThresholdMinutes', value:'10', valueType:'int', description:'Late arrival threshold (minutes)'},
+    {key:'autoAbsentCutoffTime', value:'10:00', valueType:'time', description:'Auto-mark absent cutoff time'},
+    {key:'overtimeAutoEligible', value:'true', valueType:'bool', description:'Overtime auto eligibility'},
+    {key:'outOfZonePolicy', value:'flag', valueType:'string', description:'Out-of-zone policy (flag|block)'},
+    {key:'probationDays', value:'90', valueType:'int', description:'Probation period (days)'},
+  ],
   settings:{
     companyName:'Demo Construction Co', address:'Main Boulevard, Gulberg, Lahore', phone:'042-35771234',
     email:'info@democonstruction.example.com', smtpHost:'smtp.gmail.com', smtpPort:'587', smtpUser:'', smtpPass:'',
@@ -414,14 +427,21 @@ const MockAPI = {
     return run;
   },
   listPayrollRuns(){ return DB.payrollRuns.slice().sort((a,b)=>b.month.localeCompare(a.month)).map(r=>({...r, slipCount:DB.payslips.filter(p=>p.runId===r.id).length, totalNet:DB.payslips.filter(p=>p.runId===r.id).reduce((a,p)=>a+p.net,0)})); },
-  getPayslip(runId, employeeId){
-    const p=DB.payslips.find(x=>x.runId===runId&&x.employeeId===employeeId);
-    if(!p) throw new Error('Payslip not found');
+  listPayslips(runId){
     const run=DB.payrollRuns.find(r=>r.id===runId)||{};
-    const e=empById(employeeId);
-    return {...p, month:run.month, employeeName:e.name, employeeCode:e.code, designation:e.designation, department:(DB.departments.find(d=>d.id===e.departmentId)||{}).name};
+    return DB.payslips.filter(p=>String(p.runId)===String(runId)).map(p=>{
+      const e=empById(p.employeeId);
+      return {...p, employeeName:e.name||'?', employeeCode:e.code||'', month:run.month||''};
+    }).sort((a,b)=>String(a.employeeName).localeCompare(String(b.employeeName)));
   },
-  markPayslipPaid(runId, employeeId){ const p=DB.payslips.find(x=>x.runId===runId&&x.employeeId===employeeId); if(p) p.paid=true; return {ok:true}; },
+  getPayslip(id){
+    const p=DB.payslips.find(x=>x.id===id);
+    if(!p) throw new Error('Payslip not found');
+    const run=DB.payrollRuns.find(r=>r.id===p.runId)||{};
+    const e=empById(p.employeeId);
+    return {payslip:{...p}, employee:{...e}, run:{...run}, company:DB.settings.companyName||''};
+  },
+  markPayslipPaid(id){ const p=DB.payslips.find(x=>x.id===id); if(p) p.paid=true; return {ok:true}; },
   listAdvances(){ return DB.advances.map(a=>({...a, employeeName:empById(a.employeeId).name, balance:a.amount-a.recovered})); },
   grantAdvance(employeeId, amount, installments){
     const a={id:uid('a'), employeeId, date:todayISO(), amount:Number(amount), installments:Number(installments)||1, recovered:0, status:'open'};
@@ -507,6 +527,34 @@ const MockAPI = {
   backupNow(){ return {url:HTTPS+'drive.google.com/mock-backup-'+Date.now(), name:'Demo Construction Co — backup '+todayISO()+'.xlsx'}; },
   listRolePermissions(){ return JSON.parse(JSON.stringify(DB.rolePermissions)); },
   saveRolePermissions(matrix){ Object.assign(DB.rolePermissions, matrix||{}); return {ok:true}; },
+
+  /* Phase 2: face check-in */
+  enrollFace(employeeId, descriptor){ const rec={employeeId:String(employeeId), descriptorJson:JSON.stringify(descriptor), enrolledAt:todayISO(), updatedAt:todayISO()}; const i=DB.faceEnrollments.findIndex(x=>String(x.employeeId)===String(employeeId)); if(i>=0) DB.faceEnrollments[i]={...DB.faceEnrollments[i], descriptorJson:rec.descriptorJson, updatedAt:rec.updatedAt}; else DB.faceEnrollments.push(rec); return {ok:true}; },
+  getFaceEnrollment(employeeId){ return DB.faceEnrollments.find(x=>String(x.employeeId)===String(employeeId))||null; },
+  resetFaceEnrollment(employeeId){ DB.faceEnrollments=DB.faceEnrollments.filter(x=>String(x.employeeId)!==String(employeeId)); return {ok:true}; },
+  punchWithFace(employeeId, type, lat, lng, selfie, deviceId, faceVerified, matchScore){ const r=MockAPI.punch(employeeId, type, lat, lng, selfie, deviceId); const p=DB.attendance.find(x=>x.id===r.punch.id); if(p){ p.faceVerified=faceVerified; p.matchScore=matchScore; } return {...r, faceVerified, matchScore}; },
+  /* Phase 2: auto salary */
+  listSalaryStructures(){ return DB.salaryStructures.map(s=>({...s, employeeName:(empById(s.employeeId).name||'?')})); },
+  saveSalaryStructure(s){ s=s||{}; if(s.id){ const i=DB.salaryStructures.findIndex(x=>x.id===s.id); if(i>=0) DB.salaryStructures[i]={...DB.salaryStructures[i], ...s}; } else { s.id=uid('ss'); DB.salaryStructures.push({...s}); } return {ok:true, id:s.id}; },
+  computeMonthlySalary(employeeId, month){ const e=empById(employeeId); const basic=Number(e.salary||60000); const allowances=10000; return {employeeId, month, basic, allowances, gross:basic+allowances, absentDeduction:0, lateDeduction:0, overtimePay:0, net:basic+allowances, daysPresent:22, daysAbsent:0, lateCount:0, overtimeHours:0}; },
+  generateMonthlySalaries(month){ const run={id:uid('r'), month, type:'salary', status:'draft', createdAt:todayISO()}; DB.payrollRuns.push(run); const generated=[], skipped=[]; DB.employees.filter(e=>e.active!==false).forEach(e=>{ const c=MockAPI.computeMonthlySalary(e.id, month); const p={id:uid('ps'), runId:run.id, employeeId:e.id, salary:c.basic, allowances:c.allowances, deductions:c.absentDeduction+c.lateDeduction, advanceRecovery:0, net:c.net, paid:false}; DB.payslips.push(p); generated.push({employeeName:e.name, employeeCode:e.code, daysPresent:c.daysPresent, daysAbsent:c.daysAbsent, lateCount:c.lateCount, overtimeHours:c.overtimeHours, net:c.net}); }); return {ok:true, runId:run.id, month, generated, skipped}; },
+  getSalaryPayslip(runId, employeeId){ const p=DB.payslips.find(x=>String(x.runId)===String(runId)&&String(x.employeeId)===String(employeeId)); if(!p) throw new Error('Payslip not found'); return MockAPI.getPayslip(p.id); },
+  /* Phase 2: alerts */
+  sendAlert(opts){ const o=opts||{}; DB.messageLog.push({id:uid('M'), ts:new Date().toISOString(), tenantId:((Session.user||{}).tenantId||''), channel:o.channel||'whatsapp', to:o.to||'', event:o.event||'manual', body:o.body||'', status:'pending-config', error:''}); return {ok:true, status:'pending-config'}; },
+  runAlertChecks(){ return {alerts:[]}; },
+  checkAbsences(){ return {checked:0, alerts:[]}; },
+  alertLeaveDecision(){ return {ok:true}; },
+  listMessageLog(){ return DB.messageLog.slice().reverse(); },
+  resendAlert(id){ const m=DB.messageLog.find(x=>x.id===id); if(m) m.status='pending-config'; return {ok:true}; },
+  testAlert(){ return {ok:true, status:'pending-config'}; },
+  /* Phase 2: geofence auto-punch */
+  setAutoPunch(employeeId, on){ const f=DB.employeeFlags.find(x=>String(x.employeeId)===String(employeeId)); if(f) f.autoPunch=!!on; else DB.employeeFlags.push({employeeId:String(employeeId), autoPunch:!!on, updatedAt:todayISO()}); return {ok:true, autoPunch:!!on}; },
+  getAutoPunch(employeeId){ const f=DB.employeeFlags.find(x=>String(x.employeeId)===String(employeeId)); return {autoPunch:f?!!f.autoPunch:true}; },
+  getAssignedGeofences(){ return DB.sites.filter(s=>s.active!==false).map(s=>({siteId:s.id, name:s.name, lat:Number(s.lat), lng:Number(s.lng), radiusM:Number(s.radiusM||150)})); },
+  geofencePunch(employeeId, type, lat, lng, deviceId){ return MockAPI.punch(employeeId, type, lat, lng, '', deviceId, 'geofence-auto'); },
+  /* Phase 2: HR rules */
+  getRules(){ return DB.rules.map(r=>({...r, source:'rule'})); },
+  saveRule(key, value){ const r=DB.rules.find(x=>x.key===key); if(r) r.value=String(value); else DB.rules.push({key, value:String(value), valueType:'string', description:''}); return {ok:true}; },
 };
 
 window.MockAPI=MockAPI; window.MockDB=DB;

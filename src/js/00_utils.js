@@ -73,11 +73,12 @@ function modal(title, bodyHTML, opts={}){
   ov.addEventListener('mousedown',e=>{ if(e.target===ov) close(); });
   return {el:body, box, close};
 }
-function confirmDlg(title,msg,okLabel='Confirm'){
+function confirmDlg(title,msg,okLabel){
+  okLabel=okLabel||I18N.t('c4.common.confirm');
   return new Promise(res=>{
     const m=modal(title,`<p class="text-slate-600 text-sm leading-relaxed">${msg}</p>
       <div class="flex justify-end gap-2 mt-6">
-        <button id="cNo" class="px-4 py-2 rounded-xl border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50">Cancel</button>
+        <button id="cNo" class="px-4 py-2 rounded-xl border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50">${I18N.t('c4.common.cancel')}</button>
         <button id="cYes" class="px-4 py-2 rounded-xl bg-red-600 text-white text-sm font-medium hover:bg-red-700 shadow-sm">${esc(okLabel)}</button>
       </div>`);
     m.el.querySelector('#cNo').onclick=()=>{m.close();res(false);};
@@ -122,7 +123,7 @@ function tableHTML(cols, rows, opts={}){
       <tbody class="divide-y divide-slate-50">${rows.length?rows.map((r,i)=>`<tr class="hover:bg-teal-50/40 transition-colors">${cols.map(c=>{
         const v=typeof c.get==='function'?c.get(r,i):r[c.key];
         return `<td class="px-4 py-3 ${c.num?'text-right tabular-nums':''} ${c.cls||''}">${v??'<span class="text-slate-300">—</span>'}</td>`;
-      }).join('')}</tr>`).join(''):`<tr><td colspan="${cols.length}" class="px-4 py-12 text-center"><div class="text-slate-300 text-3xl mb-2">◌</div><div class="text-sm text-slate-400">${opts.empty||'No records found'}</div></td></tr>`}</tbody>
+      }).join('')}</tr>`).join(''):`<tr><td colspan="${cols.length}" class="px-4 py-12 text-center"><div class="text-slate-300 text-3xl mb-2">◌</div><div class="text-sm text-slate-400">${opts.empty||I18N.t('c4.common.noRecords')}</div></td></tr>`}</tbody>
     </table></div>`;
 }
 function statCard(label,value,sub='',accent='teal',icon='',raw=null,prefix=''){
@@ -171,7 +172,7 @@ function badge(text,color='slate'){
 function debounce(fn,ms=300){ let t; return (...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),ms);}; }
 function uid(p='x'){ return p+'_'+Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
 function downloadCSV(filename, csv){
-  if(!csv){ toast('Nothing to export','warn'); return; }
+  if(!csv){ toast(I18N.t('c4.utils.nothingToExport'),'warn'); return; }
   const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'})); a.download=filename; a.click();
 }
 function toCSV(rows){
@@ -194,7 +195,7 @@ function printHTML(html, title='Print'){
    to avoid a literal double-slash in the served script). */
 function buildMap(el, center, zoom){
   if(typeof L==='undefined'){
-    el.innerHTML='<div class="h-full min-h-[200px] flex items-center justify-center text-sm text-slate-400 text-center p-6">Map unavailable — Leaflet failed to load.<br>Check your connection and retry.</div>';
+    el.innerHTML='<div class="h-full min-h-[200px] flex items-center justify-center text-sm text-slate-400 text-center p-6">'+I18N.t('c4.utils.mapUnavailable')+'</div>';
     return null;
   }
   const map=L.map(el,{scrollWheelZoom:true}).setView(center,zoom||14);

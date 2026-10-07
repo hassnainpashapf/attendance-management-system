@@ -12,7 +12,7 @@ App.routes['#/payroll'] = async (el, params)=>{
   el.innerHTML=pageHead('Payroll','Runs, payslips, advances and contractors',
     `${canEdit?`<button class="${btnS}" id="${cid}-adv">Grant Advance</button><button class="${btnP}" id="${cid}-run">Run Payroll</button>`:''}`)+`
   <div class="flex gap-2 mb-5 flex-wrap">
-    ${[['runs','Payroll Runs'],['advances','Advances'],['settlement','Final Settlement'],['contractors','Contractors'],['components','Pay Components']].map(([k,l])=>
+    ${[['runs','Payroll Runs'],['salaries',I18N.t('t2.salaries')],['advances','Advances'],['settlement','Final Settlement'],['contractors','Contractors'],['components','Pay Components']].map(([k,l])=>
       `<a href="#/payroll${k==='runs'?'':'?tab='+k}" class="px-4 py-2 rounded-xl text-sm font-semibold ${tab===k?'bg-teal-600 text-white shadow':'bg-white text-slate-500 border border-slate-200'}">${l}</a>`).join('')}
   </div>
   <div id="${cid}-body"></div>`;
@@ -107,6 +107,10 @@ App.routes['#/payroll'] = async (el, params)=>{
       await API.call('deletePayComponent',b.dataset.pcdel); toast('Deleted','success'); App.route();
     });
   }
+  else if(tab==='salaries'){
+    /* Track 2: auto salary from attendance (src/js/155_salary.js) */
+    await SalaryUI.renderSalariesTab(body, { emps, canEdit });
+  }
   else{
     /* runs */
     const runs=await API.call('listPayrollRuns');
@@ -126,11 +130,8 @@ App.routes['#/payroll'] = async (el, params)=>{
     const run=runs.find(r=>r.id===runId);
     const m=modal('Payroll — '+run.month,`<div id="psBody"></div>`,{wide:true});
     const pb=m.el.querySelector('#psBody');
-    /* payslip list derived via getPayslip per employee is heavy; use employees of mock via listPayComponents? Instead list all slips from runs */
-    const slips=[];
-    for(const e of emps.filter(x=>x.active)){
-      try{ const s=await API.call('getPayslip',runId,e.id); slips.push(s); }catch(e2){}
-    }
+    /* listPayslips returns flat enriched slips for the run (id, employeeName/Code, salary, allowances, deductions, advanceRecovery, net, paid) */
+    const slips=await API.call('listPayslips',runId);
     pb.innerHTML=tableHTML([
       {label:'Employee', get:s=>`<div><div class="font-medium text-slate-700">${esc(s.employeeName)}</div><div class="text-xs text-slate-400">${esc(s.employeeCode)}</div></div>`},
       {label:'Salary', num:1, get:s=>`<span class="tabular-nums">${fmt(s.salary)}</span>`},
@@ -139,15 +140,18 @@ App.routes['#/payroll'] = async (el, params)=>{
       {label:'Advance', num:1, get:s=>`<span class="tabular-nums text-amber-600">−${fmtNum(s.advanceRecovery)}</span>`},
       {label:'Net', num:1, get:s=>`<span class="tabular-nums font-bold">${fmt(s.net)}</span>`},
       {label:'', get:s=>`<div class="flex gap-1 justify-end">
-        <button class="${btnS} !px-3 !py-1.5 !text-xs" data-ps="${s.employeeId}">Payslip</button>
-        ${!s.paid&&canEdit?`<button class="${btnS} !px-3 !py-1.5 !text-xs !text-emerald-700" data-paid="${s.employeeId}">Mark paid</button>`:s.paid?badge('Paid','teal'):''}</div>`},
+        <button class="${btnS} !px-3 !py-1.5 !text-xs" data-ps="${s.id}">Payslip</button>
+        ${!s.paid&&canEdit?`<button class="${btnS} !px-3 !py-1.5 !text-xs !text-emerald-700" data-paid="${s.id}">Mark paid</button>`:s.paid?badge('Paid','teal'):''}</div>`},
     ], slips, {empty:'No payslips in this run.'});
     pb.querySelectorAll('[data-ps]').forEach(b=>b.onclick=async()=>{
-      const s=await API.call('getPayslip',runId,b.dataset.ps);
-      payslipModal(s);
+      const r=await API.call('getPayslip',b.dataset.ps);
+      payslipModal({employeeName:r.employee.name, employeeCode:r.employee.code, month:r.run.month,
+        designation:r.employee.designation, department:r.employee.departmentName||r.employee.department,
+        salary:r.payslip.salary, allowances:r.payslip.allowances, deductions:r.payslip.deductions,
+        advanceRecovery:r.payslip.advanceRecovery, net:r.payslip.net, paid:r.payslip.paid});
     });
     pb.querySelectorAll('[data-paid]').forEach(b=>b.onclick=async()=>{
-      await API.call('markPayslipPaid',runId,b.dataset.paid); toast('Marked paid','success'); m.close(); App.route();
+      await API.call('markPayslipPaid',b.dataset.paid); toast('Marked paid','success'); m.close(); App.route();
     });
   }
 

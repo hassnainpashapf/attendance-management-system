@@ -1,6 +1,6 @@
 /* QA harness — headless load test for deploy/index.html (Check 5).
  * Loads the COMBINED inline app script with DOM stubs, boots against MockAPI,
- * renders all 13 routes, and asserts zero thrown errors / zero console.error.
+ * renders all 15 routes, and asserts zero thrown errors / zero console.error.
  * Run: node qa_harness.js
  */
 const fs = require('fs');
@@ -166,7 +166,7 @@ vm.createContext(sandbox);
   ok('App.boot is function', typeof App.boot === 'function');
   ok('App.route is function', typeof App.route === 'function');
   ok('MockAPI exposed', !!MockAPI);
-  ok('13 routes registered', Object.keys(App.routes || {}).length === 13, Object.keys(App.routes || {}).length + ' found');
+  ok('15 routes registered', Object.keys(App.routes || {}).length === 15, Object.keys(App.routes || {}).length + ' found');
 
   // 2. boot with no session -> login page
   try { await App.boot(); ok('boot() with no session (login page)', true); }
@@ -184,7 +184,7 @@ vm.createContext(sandbox);
     ok('boot() as admin (shell + dashboard)', true);
   } catch (e) { ok('admin login+boot', false, e.stack.split('\n').slice(0,3).join(' ')); }
 
-  // 4. render ALL 13 routes
+  // 4. render ALL 15 routes
   const routes = ['#/dashboard','#/punch','#/employees','#/sites','#/shifts','#/attendance','#/leave','#/overtime','#/payroll','#/documents','#/reports','#/settings','#/tenants'];
   for (const r of routes) {
     consoleErrors.length = 0;

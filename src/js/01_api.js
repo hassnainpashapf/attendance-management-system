@@ -16,7 +16,7 @@ const API = {
       return new Promise((resolve,reject)=>{
         google.script.run
           .withSuccessHandler(r=>resolve(r))
-          .withFailureHandler(e=>reject(new Error((e&&e.message)||'Server call failed')))
+          .withFailureHandler(e=>reject(new Error((e&&e.message)||I18N.t('c4.api.serverFailed'))))
           .__api(fn, userJson, argsJson);
       });
     }

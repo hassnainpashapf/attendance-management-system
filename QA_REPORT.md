@@ -83,3 +83,14 @@ Negative cases (bad password ×2, unknown company, bad user) all rejected. Tenan
 - `punch` dup guard uses `Math.abs(minsBetween_) < 5` — a punch timestamped slightly in the *future* (clock skew) also blocks. Harmless.
 - `createTenant` sets registry `status:'active'` while `MockAPI.createTenant` sets `'trial'`. Cosmetic divergence; contract doesn't specify.
 - QA test scripts kept in the workspace for re-runs: `qa_harness.js`, `qa_punch.js`, `qa_login.js` (69 assertions total, 0 failures).
+
+## Phase 2 (2026-10-07) — 7 tracks integrated
+- T1 face check-in (on-device, face-api.js, threshold 0.6): qa_face.js 47/47
+- T2 auto salary + payslip PDF: qa_salary.js 69/69 (also fixed pre-existing viewRun getPayslip arg/shape bug in 100_payroll.js — now uses listPayslips/getPayslip-by-id)
+- T3 WhatsApp/SMS alerts + MessageLog: qa_alerts.js 53/53
+- T4 EN/UR toggle + RTL (440 keys each): qa_i18n.js 22/22
+- T5 geofence auto-punch + AndroidGetPunchConfig: qa_geofence.js 44/44
+- T6 HR rules engine (duplicate window, grace, out-of-zone flag/block now rule-driven via patches): qa_rules.js 52/52
+- T7 rich demo data (idempotent): qa_demo.js all pass
+- build.py: all guards pass (24 files, 92 API fns mocked, 103 contract fns, 15 routes incl. #/face #/rules, no :// in served script, branding clean)
+- qa_harness.js: ALL PASS (15 routes, zero console.error); qa_login/qa_punch/qa_tenants all pass
