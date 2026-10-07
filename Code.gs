@@ -3366,3 +3366,23 @@ function seedTrack7Demo_(ss, tenantId) {
 
   return 'track7 demo seeded';
 }
+
+/* Phase 2 migration — run once from the editor AFTER deploying the new version.
+   Adds all Phase 2 tabs + default rules + salary settings to every EXISTING
+   tenant spreadsheet. New tenants get them automatically via setupTenantSS. */
+function migratePhase2() {
+  var out = [];
+  rows_('tenants').forEach(function (t) {
+    try {
+      var ss = SpreadsheetApp.openById(t.spreadsheetId);
+      if (typeof seedTrack1Tabs_ === 'function') seedTrack1Tabs_(ss);
+      if (typeof seedTrack2Tabs_ === 'function') seedTrack2Tabs_(ss);
+      if (typeof seedTrack3Tabs_ === 'function') seedTrack3Tabs_(ss);
+      if (typeof seedTrack5Tabs_ === 'function') seedTrack5Tabs_(ss);
+      if (typeof seedTrack6Tabs_ === 'function') seedTrack6Tabs_(ss);
+      out.push(t.loginCode + ': ok');
+    } catch (e) { out.push(t.loginCode + ': FAILED ' + String((e && e.message) || e)); }
+  });
+  Logger.log(out.join('\n'));
+  return out;
+}
